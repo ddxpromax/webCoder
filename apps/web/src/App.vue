@@ -39,7 +39,7 @@ async function submitExplanation() {
   if (explaining.value) return
 
   if (!code.value.trim()) {
-    explanationError.value = 'please input code needed explanation'
+    explanationError.value = 'Enter the code you want explained.'
     explanation.value = null
     return
   }
@@ -96,7 +96,7 @@ onMounted(loadSystemInfo)
       <div class="section-heading">
         <div>
           <h2 id="editor-title">explain a piece of code</h2>
-          <p>backend will respond a explanation after commit; using current mock response</p>
+          <p>The backend returns an explanation when you submit. This prototype uses a mock response.</p>
         </div>
 
         <label class="language-picker">
@@ -111,7 +111,7 @@ onMounted(loadSystemInfo)
       </div>
 
       <form id="explanation-form" @submit.prevent="submitExplanation">
-        <label class="sr-only" for="code-input">code needed explanation</label>
+        <label class="sr-only" for="code-input">Code to explain</label>
         <textarea
           id="code-input"
           v-model="code"
@@ -119,7 +119,7 @@ onMounted(loadSystemInfo)
           maxlength="20000"
           rows="14"
           spellcheck="false"
-          placeholder="place a piece of code here to explain..."
+          placeholder="Paste code here..."
         />
         
         <div class="editor-footer">
@@ -128,7 +128,7 @@ onMounted(loadSystemInfo)
         </div>
       </form>
 
-      <p v-if="explaining" role="status">waiting for explanation...</p>
+      <p v-if="explaining" role="status">Generating explanation...</p>
       <p v-else-if="explanationError" class="error" role="alert">{{ explanationError }}</p>
 
       <section 

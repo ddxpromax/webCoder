@@ -15,7 +15,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 export async function explainCode(
     input: ExplainRequest,
 ): Promise<ExplainResponse> {
-    const response = await fetch('api/explanations', {
+    const response = await fetch('/api/explanations', {
         method: 'POST',
         headers: {
             Accept: 'application/json',

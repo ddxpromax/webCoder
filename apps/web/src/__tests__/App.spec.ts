@@ -85,4 +85,30 @@ describe('service connect', () => {
       'Mock explanation for python code.',
     )
   })
+
+  it('rejects empty code without calling the API', async () => 
+  {
+    const wrapper = mount(App)
+    await flushPromises()
+
+    await wrapper.get('#explanation-form').trigger('submit')
+
+    expect(wrapper.get('[role="alert"]').text()).toContain('Enter')
+    expect(explainCodeMock).not.toHaveBeenCalled()
+  })
+
+  it('shows the backend error when explanation fails', async () => {
+    explainCodeMock.mockRejectedValue(new Error('Upstream AI service timed out.'))
+
+    const wrapper = mount(App)
+    await flushPromises()
+
+    await wrapper.get('#code-input').setValue('print(1)')
+    await wrapper.get('#explanation-form').trigger('submit')
+    await flushPromises()
+
+    expect(wrapper.get('[role="alert"]').text()).toBe(
+      'Upstream AI service timed out.',
+    )
+  })
 })
