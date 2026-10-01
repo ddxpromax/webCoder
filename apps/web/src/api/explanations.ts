@@ -1,53 +1,98 @@
+import { EventSourceParserStream } from 'eventsource-parser/stream'
+
 export interface ExplainRequest {
     code: string
     language: string
 }
 
-export interface ExplainResponse {
-    mode: 'mock'
-    explanation: string
+export interface StreamExplanationOptions {
+    onToken: (text: string) => void
+    signal?: AbortSignal
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value == 'object' && value !== null
 }
 
-export async function explainCode(
+async function getHttpError(response: Response): Promise<Error> {
+    const body: unknown = await response.json().catch(() => null)
+
+    if (isRecord(body) && typeof body.detail === 'string') {
+        return new Error(body.detail)
+    }
+
+    if (isRecord(body) && typeof body.title === 'string') {
+        return new Error(body.title)
+    }
+
+    return new Error(`Request failed (HTTP ${response.status}).`)
+}
+
+export async function streamExplanation(
     input: ExplainRequest,
-): Promise<ExplainResponse> {
-    const response = await fetch('/api/explanations', {
+    options: StreamExplanationOptions,
+): Promise<void> {
+    const response = await fetch('/api/explanations/stream', {
         method: 'POST',
         headers: {
-            Accept: 'application/json',
+            Accept: 'text/event-stream',
             'Content-Type': 'application/json',
         },
         body: JSON.stringify(input),
-        signal: AbortSignal.timeout(60_000),
+        signal: options.signal,
     })
 
     if (!response.ok) {
-        const body: unknown = await response.json().catch(() => null)
-        const message = isRecord(body) && typeof body.detail === 'string'
-            ? body.detail
-            : isRecord(body) && typeof body.title === 'string'
-                ? body.title
-                : `request failed (HTTP ${response.status})`
-            
-        throw new Error(message)
+        throw await getHttpError(response)
     }
 
-    const body: unknown = await response.json()
-
-    if (
-        !isRecord(body) ||
-        body.mode !== 'mock' ||
-        typeof body.explanation !== 'string'
-    ) {
-        throw new Error('response data format is not correct')
+    if (!response.headers.get('content-type')?.includes('text/event-stream')) {
+        throw new Error('The server did not return an event stream.')
     }
 
-    return {
-        mode: 'mock',
-        explanation: body.explanation,
+    if (!response.body) {
+        throw new Error('The server returned an empty response.')
+    }
+
+    const events = response.body
+        .pipeThrough(new TextDecoderStream())
+        .pipeThrough(
+            new EventSourceParserStream({
+                maxBufferSize: 1024 * 1024,
+                onError: 'terminate',
+            }),
+        )
+
+    let completed = false
+
+    for await (const event of events) {
+        if (event.event === 'token') {
+            let data: unknown
+
+            try {
+                data = JSON.parse(event.data)
+            } catch {
+                throw new Error('The server returned an invalid token event.')
+            }
+
+            if (!isRecord(data) || typeof data.text !== 'string') {
+                throw new Error('The server returned an invalid token event.')
+            }
+
+            options.onToken(data.text)
+            continue
+        }
+
+        if (event.event === 'error') {
+            throw new Error(event.data || 'The AI service failed.')
+        }
+
+        if (event.event === 'done' && event.data === '[DONE]') {
+            completed = true
+        }
+    }
+
+    if (!completed) {
+        throw new Error('The explanation stream ended before completion.')
     }
 }

@@ -34,3 +34,20 @@ def test_invalid_code_is_rejected(code: str):
         error["loc"] == ["body", "code"]
         for error in response.json()["detail"]
     )
+
+def test_explanation_stream_returns_sse_tokens_and_done_event():
+    with TestClient(app) as client:
+        response = client.post(
+            "/internal/explanations/stream",
+            json={
+                "code": "print(1)",
+                "language": "python",
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/event-stream")
+    assert "event: token" in response.text
+    assert '"Mock ' in response.text
+    assert "event: done" in response.text
+    assert "data: [DONE]" in response.text

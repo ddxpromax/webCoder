@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
-import { explainCode, type ExplainResponse } from '@/api/explanations'
+import { onMounted, ref, onBeforeUnmount } from 'vue'
+import { streamExplanation } from '@/api/explanations'
 import { getSystemInfo, type SystemInfo } from '@/api/system'
 
 const systemLoading = ref(false)
@@ -9,9 +9,13 @@ const systemError = ref('')
 
 const code = ref('')
 const language = ref('python')
+const explanation = ref('')
 const explaining = ref(false)
-const explanation = ref<ExplainResponse | null>(null)
 const explanationError = ref('')
+const generationNotice = ref('')
+
+let activeExplanationController: AbortController | null = null
+
 
 async function loadSystemInfo() {
   if (systemLoading.value) return
@@ -40,39 +44,62 @@ async function submitExplanation() {
 
   if (!code.value.trim()) {
     explanationError.value = 'Enter the code you want explained.'
-    explanation.value = null
+    explanation.value = ''
     return
   }
 
   if (code.value.length > 20_000) {
     explanationError.value = 'code cannot exceed 20,000 characters'
-    explanation.value = null
+    explanation.value = ''
     return
   }
 
+  const controller = new AbortController()
+  activeExplanationController = controller
   explaining.value = true
-  explanation.value = null
+  explanation.value = ''
   explanationError.value = ''
+  generationNotice.value = ''
 
   try {
-    explanation.value = await explainCode({
-      code: code.value,
-      language: language.value,
-    })
+    await streamExplanation(
+      {
+        code: code.value,
+        language: language.value,
+      },
+      {
+        signal: controller.signal,
+        onToken: (text) => {
+          explanation.value += text
+        },
+      },
+    )
   } catch (error) {
-    if (error instanceof Error && error.name === 'TimeoutError') {
-      explanationError.value = 'connection timeout'
+    if (controller.signal.aborted) {
+      generationNotice.value = 'Generation stopped.'
     } else if (error instanceof TypeError) {
-      explanationError.value = 'cannot connect to service, please check network and backend state'
+      explanationError.value = 'Cannot connect to the backend service.'
     } else {
-      explanationError.value = error instanceof Error ? error.message : 'request failed, please try again'
+      explanationError.value = error instanceof Error ? error.message : 'Request failed. Please try again.'
     }
   } finally {
     explaining.value = false
+
+    if (activeExplanationController === controller) {
+      activeExplanationController = null
+    }
   }
 }
 
+function stopGeneration() {
+  activeExplanationController?.abort()
+}
+
 onMounted(loadSystemInfo)
+
+onBeforeUnmount(() => {
+  activeExplanationController?.abort()
+})
 </script>
 
 <template>
@@ -96,7 +123,7 @@ onMounted(loadSystemInfo)
       <div class="section-heading">
         <div>
           <h2 id="editor-title">explain a piece of code</h2>
-          <p>The backend returns an explanation when you submit. This prototype uses a mock response.</p>
+          <p>The explanation streams in as it is generated. This prototype uses a mock response.</p>
         </div>
 
         <label class="language-picker">
@@ -124,11 +151,23 @@ onMounted(loadSystemInfo)
         
         <div class="editor-footer">
           <span>{{ code.length.toLocaleString() }} / 20,000</span>
-          <button type="submit" :disabled="explaining">{{ explaining ? 'explaining' : 'explain the code' }}</button>
+          <div class="editor-actions">
+            <button
+              v-if="explaining"
+              type="button"
+              @click="stopGeneration"
+            >
+              Stop
+            </button>
+            <button type="submit" :disabled="explaining">
+              {{ explaining ? 'Generating...' : 'Explain code' }}
+            </button>
+          </div>
         </div>
       </form>
 
       <p v-if="explaining" role="status">Generating explanation...</p>
+      <p v-else-if="generationNotice" role="status">{{ generationNotice }}</p>
       <p v-else-if="explanationError" class="error" role="alert">{{ explanationError }}</p>
 
       <section 
@@ -138,10 +177,10 @@ onMounted(loadSystemInfo)
         aria-live="polite"
       >
         <div class="result-heading">
-          <h2 id="result-title">explanation</h2>
-          <span class="mode-badge">{{ explanation.mode }}</span>
+          <h2 id="result-title">Explanation</h2>
+          <span class="mode-badge">mock</span>
         </div>
-        <pre>{{ explanation.explanation }}</pre>
+        <pre>{{ explanation }}</pre>
       </section>
     </section>
   </main>
@@ -290,6 +329,11 @@ onMounted(loadSystemInfo)
     clip: rect(0, 0, 0, 0);
     white-space: nowrap;
     clip-path: inset(50%);
+  }
+
+  .editor-actions {
+    display: flex;
+    gap: 8px;
   }
 
   @media (max-width: 640px) {
