@@ -1,6 +1,7 @@
 package io.github.ddxpromax.webcoder.conversation;
 
 import java.util.List;
+import java.util.UUID;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -25,5 +26,10 @@ public class ConversationService {
     @Transactional(readOnly=true)
     public List<Conversation> findRecent(int limit) {
         return conversationRepository.findRecent(limit);
+    }
+
+    @Transactional(readOnly = true)
+    public boolean existsById(UUID id) {
+        return conversationRepository.existsById(id);
     }
 }

@@ -52,4 +52,17 @@ public class ConversationRepository {
             resultSet.getObject("created_at", OffsetDateTime.class).toInstant(),
             resultSet.getObject("updated_at", OffsetDateTime.class).toInstant());
     }
+
+    public boolean existsById(UUID id) {
+        return jdbcClient.sql("""
+                select exists (
+                    select 1
+                    from conversations
+                    where id = :id
+                )
+                """)
+                .param("id", id)
+                .query(Boolean.class)
+                .single();
+    }
 }

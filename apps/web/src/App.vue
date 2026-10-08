@@ -2,6 +2,12 @@
 import { onMounted, ref, onBeforeUnmount } from 'vue'
 import { streamExplanation } from '@/api/explanations'
 import { getSystemInfo, type SystemInfo } from '@/api/system'
+import {
+  createConversation,
+  getRecentMessages,
+  type ConversationMessage,
+  type MessageCursor,
+} from '@/api/conversation'
 
 const systemLoading = ref(false)
 const systemInfo = ref<SystemInfo | null>(null)
@@ -13,6 +19,13 @@ const explanation = ref('')
 const explaining = ref(false)
 const explanationError = ref('')
 const generationNotice = ref('')
+const activeConversationId = ref<string | null>(null)
+
+const messages = ref<ConversationMessage[]>([])
+const nextMessageCursor = ref<MessageCursor | null>(null)
+const messageHistoryLoading = ref(false)
+const olderMessagesLoading = ref(false)
+const messageHistoryError = ref('')
 
 let activeExplanationController: AbortController | null = null
 
@@ -61,8 +74,35 @@ async function submitExplanation() {
   explanationError.value = ''
   generationNotice.value = ''
 
+  let previousAssistantMessageId = 0
+
   try {
+    let conversationId = activeConversationId.value
+
+    if (!conversationId) {
+      const conversation = await createConversation(controller.signal)
+
+      if (controller.signal.aborted) {
+        return
+      }
+
+      conversationId = conversation.id
+      activeConversationId.value = conversationId
+      messages.value = []
+      nextMessageCursor.value = null
+      messageHistoryError.value = ''
+    }
+
+    previousAssistantMessageId = messages.value.reduce(
+      (latestId, message) =>
+        message.role == 'assistant'
+          ? Math.max(latestId, message.id)
+          : latestId,
+      0,
+    )
+
     await streamExplanation(
+      conversationId,
       {
         code: code.value,
         language: language.value,
@@ -83,11 +123,136 @@ async function submitExplanation() {
       explanationError.value = error instanceof Error ? error.message : 'Request failed. Please try again.'
     }
   } finally {
+    const conversationId = activeConversationId.value
+
+    if (conversationId) {
+      const wasStopped = controller.signal.aborted
+      const canRefresh = wasStopped
+        ? await waitForAssistantMessageToFinish(
+          conversationId,
+          previousAssistantMessageId,
+        )
+        :true
+
+      if (canRefresh) {
+        const refreshed = await loadRecentMessages(conversationId)
+
+        if (refreshed) {
+          explanation.value = ''
+        }
+      }
+    }
+
     explaining.value = false
 
     if (activeExplanationController === controller) {
       activeExplanationController = null
     }
+  }
+}
+
+async function waitForAssistantMessageToFinish(
+  conversationId: string,
+  perviousAssistantMessageId: number,
+): Promise<boolean> {
+  const deadline = Date.now() + 5_000
+  let delay = 150
+
+  while (Date.now() < deadline) {
+    const page = await getRecentMessages(conversationId)
+    const latestAssistant = [...page.messages]
+      .reverse()
+      .find(
+        (message) =>
+          message.role === 'assistant'
+          && message.id > perviousAssistantMessageId,
+      )
+
+    if (latestAssistant && latestAssistant.status !== 'pending') {
+      return true
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, delay))
+    delay = Math.min(delay * 2, 800)
+  }
+
+  return false
+}
+
+function mergeMessages(
+  existing: ConversationMessage[],
+  incoming: ConversationMessage[],
+): ConversationMessage[] {
+  const messagesById = new Map(
+    existing.map((message) => [message.id, message]),
+  )
+
+  for (const message of incoming) {
+    messagesById.set(message.id, message)
+  }
+
+  return [...messagesById.values()].sort((left, right) => {
+    const timeDifference =
+      Date.parse(left.createdAt) - Date.parse(right.createdAt)
+
+    return timeDifference || left.id - right.id
+  })
+}
+
+async function loadRecentMessages(
+  conversationId: string,
+): Promise<boolean> {
+  messageHistoryLoading.value = true
+  messageHistoryError.value = ''
+
+  try {
+    const page = await getRecentMessages(conversationId)
+    const alreadyHasMessages = messages.value.length > 0
+
+    messages.value = mergeMessages(messages.value, page.messages)
+
+    if (!alreadyHasMessages) {
+      nextMessageCursor.value = page.nextCursor
+    }
+    return true
+  } catch (error) {
+    messageHistoryError.value =
+      error instanceof Error
+        ? error.message
+        : 'Could not load conversation history.'
+    return false
+  } finally {
+    messageHistoryLoading.value = false
+  }
+}
+
+async function loadOlderMessages() {
+  const conversationId = activeConversationId.value
+  const cursor = nextMessageCursor.value
+
+  if (!conversationId || !cursor || olderMessagesLoading.value) {
+    return
+  }
+
+  olderMessagesLoading.value = true
+  messageHistoryError.value = ''
+
+  try {
+    const page = await getRecentMessages(
+      conversationId,
+      4,
+      cursor,
+    )
+
+    messages.value = [...page.messages, ...messages.value]
+    nextMessageCursor.value = page.nextCursor
+  } catch (error) {
+    messageHistoryError.value =
+      error instanceof Error
+        ? error.message
+        : 'Could not load older messages.'
+  } finally {
+    olderMessagesLoading.value = false
   }
 }
 
@@ -170,8 +335,8 @@ onBeforeUnmount(() => {
       <p v-else-if="generationNotice" role="status">{{ generationNotice }}</p>
       <p v-else-if="explanationError" class="error" role="alert">{{ explanationError }}</p>
 
-      <section 
-        v-if="explanation"
+      <section
+        v-if="explanation && (explaining || messages.length === 0)"
         class="result"
         aria-labelledby="result-title"
         aria-live="polite"
@@ -181,6 +346,44 @@ onBeforeUnmount(() => {
           <span class="mode-badge">mock</span>
         </div>
         <pre>{{ explanation }}</pre>
+      </section>
+
+      <section
+        v-if="messages.length || messageHistoryLoading"
+        class="conversation-history"
+        aria-labelledby="conversation-history-title"
+      >
+        <div class="section-heading">
+          <h2 id="conversation-history-title">Conversation</h2>
+
+          <button
+            v-if="nextMessageCursor"
+            type="button"
+            :disabled="olderMessagesLoading"
+            @click="loadOlderMessages"
+          >
+            {{ olderMessagesLoading ? 'Loading older messages...' : 'Load older messages' }}
+          </button>
+        </div>
+
+        <p v-if="messageHistoryLoading" role="status">
+          Loading conversation history...
+        </p>
+        <p v-if="messageHistoryError" class="error" role="alert">
+          {{ messageHistoryError }}
+        </p>
+
+        <article
+          v-for="message in messages"
+          :key="message.id"
+          class="conversation-message"
+        >
+          <div class="message-heading">
+            <strong>{{ message.role === 'user' ? 'You' : 'Assistant' }}</strong>
+            <span>{{ message.status }}</span>
+          </div>
+          <pre>{{ message.content || (message.status === 'pending' ? 'Generating...' : '') }}</pre>
+        </article>
       </section>
     </section>
   </main>
