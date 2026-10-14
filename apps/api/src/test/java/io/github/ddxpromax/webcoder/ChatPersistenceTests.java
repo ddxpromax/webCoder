@@ -279,4 +279,133 @@ class ChatPersistenceTests {
             "gpt-5.2"
         )).isEqualTo(131072);
     }
+
+    @Test
+    void activeModelUsesAgentSelectionBeforeGlobalFallback() throws Exception {
+        String agentId = "test-" + java.util.UUID.randomUUID();
+
+        try {
+            mockMvc.perform(put("/api/models/active")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("""
+                        {
+                        "scope": "global",
+                        "provider_id": "openai",
+                        "model": "gpt-5.2"
+                        }
+                        """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.active_llm.provider_id")
+                    .value("openai"))
+                .andExpect(jsonPath("$.active_llm.model")
+                    .value("gpt-5.2"))
+                .andExpect(jsonPath("$.effective_max_input_length")
+                    .value(131072));
+
+            mockMvc.perform(get("/api/models/active")
+                    .param("scope", "effective")
+                    .param("agent_id", agentId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.active_llm.model")
+                    .value("gpt-5.2"));
+
+            mockMvc.perform(put("/api/models/active")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("""
+                        {
+                        "scope": "agent",
+                        "agent_id": "%s",
+                        "provider_id": "openai",
+                        "model": "gpt-4o"
+                        }
+                        """.formatted(agentId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.active_llm.model")
+                    .value("gpt-4o"));
+
+            mockMvc.perform(get("/api/models/active")
+                    .param("scope", "effective")
+                    .param("agent_id", agentId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.active_llm.model")
+                    .value("gpt-4o"));
+
+            mockMvc.perform(get("/api/models/active")
+                    .param("scope", "global"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.active_llm.model")
+                    .value("gpt-5.2"));
+        } finally {
+            jdbcTemplate.update(
+                """
+                DELETE FROM active_models
+                WHERE scope = 'agent'
+                AND agent_id = ?
+                """,
+                agentId
+            );
+            jdbcTemplate.update(
+                """
+                UPDATE active_models
+                SET provider_id = '', model_id = ''
+                WHERE scope = 'global'
+                AND agent_id IS NULL
+                """
+            );
+        }
+    }
+
+    @Test
+    void customProviderUsesMajoModelConfigIdAndContextSize()
+        throws Exception {
+        String name = "custom-" + java.util.UUID.randomUUID();
+
+        jdbcTemplate.update(
+            """
+            INSERT INTO model_configs (
+                name, api_key, base_url, model_name
+            ) VALUES (?, ?, ?, ?)
+            """,
+            name,
+            "test-key",
+            "https://example.test/v1",
+            "custom-model"
+        );
+
+        Long id = jdbcTemplate.queryForObject(
+            "SELECT id FROM model_configs WHERE name = ?",
+            Long.class,
+            name
+        );
+
+        try {
+            mockMvc.perform(put("/api/models/active")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("""
+                        {
+                        "scope": "global",
+                        "provider_id": "%s",
+                        "model": "custom-model"
+                        }
+                        """.formatted(id)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.active_llm.provider_id")
+                    .value(id.toString()))
+                .andExpect(jsonPath("$.effective_max_input_length")
+                    .value(128000));
+        } finally {
+            jdbcTemplate.update(
+                """
+                UPDATE active_models
+                SET provider_id = '', model_id = ''
+                WHERE scope = 'global'
+                AND agent_id IS NULL
+                """
+            );
+            jdbcTemplate.update(
+                "DELETE FROM model_configs WHERE id = ?",
+                id
+            );
+        }
+    }
 }
