@@ -248,4 +248,35 @@ class ChatPersistenceTests {
             configName
         );
     }
+
+    @Test
+    void builtInProviderCatalogMatchesMajoSeed() {
+        assertThat(jdbcTemplate.queryForObject(
+            "SELECT COUNT(*) FROM providers",
+            Long.class
+        )).isEqualTo(33L);
+
+        assertThat(jdbcTemplate.queryForObject(
+            "SELECT COUNT(*) FROM provider_models",
+            Long.class
+        )).isEqualTo(175L);
+
+        assertThat(jdbcTemplate.queryForObject(
+            "SELECT base_url FROM providers WHERE id = ?",
+            String.class,
+            "ollama"
+        )).isEqualTo("http://127.0.0.1:11434");
+
+        assertThat(jdbcTemplate.queryForObject(
+            """
+            SELECT max_input_length
+            FROM provider_models
+            WHERE provider_id = ?
+            AND model_id = ?
+            """,
+            Integer.class,
+            "openai",
+            "gpt-5.2"
+        )).isEqualTo(131072);
+    }
 }
