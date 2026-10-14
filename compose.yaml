@@ -1,22 +1,29 @@
 name: webcoder
 
 services:
-  postgres:
-    image: postgres:17.11
+  mysql:
+    image: mysql:8.4
     restart: unless-stopped
     environment:
-      POSTGRES_DB: webcoder
-      POSTGRES_USER: webcoder
-      POSTGRES_PASSWORD: webcoder_dev
+      MYSQL_ROOT_PASSWORD: webcoder_root_dev
+      MYSQL_DATABASE: webcoder
+      MYSQL_USER: webcoder
+      MYSQL_PASSWORD: webcoder_dev
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+      - --default-time-zone=+00:00
     ports:
-      - "5432:5432"
+      - "127.0.0.1:3306:3306"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - mysql_data:/var/lib/mysql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      test:
+        - CMD-SHELL
+        - mysql -h 127.0.0.1 -u "$$MYSQL_USER" -p"$$MYSQL_PASSWORD" -D "$$MYSQL_DATABASE" -e "SELECT 1" >/dev/null
       interval: 5s
       timeout: 3s
-      retries: 10
+      retries: 20
 
 volumes:
-  postgres_data:
+  mysql_data:
