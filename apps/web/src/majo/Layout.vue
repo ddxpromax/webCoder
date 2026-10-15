@@ -108,6 +108,9 @@ onBeforeUnmount(() => window.removeEventListener('majo-chats-changed', refresh))
           </p>
         </div>
         <div class="sidebar-bottom">
+          <RouterLink to="/token-usage" class="nav-item"
+            ><span class="nav-icon">▥</span>Token usage</RouterLink
+          >
           <RouterLink to="/settings" class="nav-item"
             ><span class="nav-icon">⚙</span>Settings</RouterLink
           >

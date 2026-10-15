@@ -8,6 +8,7 @@ import AgentsPage from '@/majo/AgentsPage.vue'
 import ModelsPage from '@/majo/ModelsPage.vue'
 import SettingsPage from '@/majo/SettingsPage.vue'
 import ToolsPage from '@/majo/ToolsPage.vue'
+import TokenUsagePage from '@/majo/TokenUsagePage.vue'
 import LoginPage from '@/majo/LoginPage.vue'
 
 const router = createRouter({
@@ -27,6 +28,7 @@ const router = createRouter({
         { path: 'models', component: ModelsPage },
         { path: 'settings', component: SettingsPage },
         { path: 'tools', component: ToolsPage },
+        { path: 'token-usage', component: TokenUsagePage },
       ],
     },
   ],

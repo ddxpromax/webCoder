@@ -2,10 +2,12 @@ package io.github.ddxpromax.webcoder.agent;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.agentscope.core.agent.RuntimeContext;
+import io.agentscope.core.event.ModelCallEndEvent;
 import io.agentscope.core.message.UserMessage;
 import io.agentscope.harness.agent.HarnessAgent;
 import io.github.ddxpromax.webcoder.chat.ChatEntity;
 import io.github.ddxpromax.webcoder.chat.ChatService;
+import io.github.ddxpromax.webcoder.model.ModelRoutingService;
 import jakarta.servlet.http.HttpServletRequest;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -45,6 +47,8 @@ public class ConsoleController {
     private final ActiveTurnRegistry turns;
     private final ApprovalStore approvals;
     private final MemoryCommandService memoryCommands;
+    private final TokenUsageService tokenUsage;
+    private final ModelRoutingService modelRouting;
     private final ObjectMapper mapper;
     private final String version;
 
@@ -55,6 +59,8 @@ public class ConsoleController {
         ActiveTurnRegistry turns,
         ApprovalStore approvals,
         MemoryCommandService memoryCommands,
+        TokenUsageService tokenUsage,
+        ModelRoutingService modelRouting,
         ObjectMapper mapper,
         @Value("${majo.version:0.4.0}") String version
     ) {
@@ -64,6 +70,8 @@ public class ConsoleController {
         this.turns = turns;
         this.approvals = approvals;
         this.memoryCommands = memoryCommands;
+        this.tokenUsage = tokenUsage;
+        this.modelRouting = modelRouting;
         this.mapper = mapper;
         this.version = version;
     }
@@ -134,6 +142,8 @@ public class ConsoleController {
         String responseId = "response_"
             + UUID.randomUUID().toString().replace("-", "");
         TurnState state = new TurnState();
+        long turnStartMs = System.currentTimeMillis();
+        var modelSlot = modelRouting.resolveEffectiveModel(agentId);
 
         Flux<String> streamed = agent.streamEvents(
                 new UserMessage(prompt), context
@@ -189,6 +199,21 @@ public class ConsoleController {
                     exception);
             } finally {
                 turns.unregister(chatId);
+            }
+            if (state.inputTokens > 0 || state.outputTokens > 0) {
+                try {
+                    tokenUsage.record(
+                        agentId, chatId,
+                        modelSlot == null ? "" : modelSlot.providerId(),
+                        modelSlot == null ? "" : modelSlot.modelId(),
+                        state.inputTokens,
+                        state.outputTokens,
+                        System.currentTimeMillis() - turnStartMs
+                    );
+                } catch (Exception exception) {
+                    log.warn("Failed to record token usage for chat {}",
+                        chatId, exception);
+                }
             }
         });
     }
@@ -368,12 +393,11 @@ public class ConsoleController {
                     )
                 );
             case "ModelCallEndEvent":
-                var usage = mapper.valueToTree(event)
-                    .path("usage");
-                state.inputTokens = usage.path("inputTokens")
-                    .asInt(state.inputTokens);
-                state.outputTokens = usage.path("outputTokens")
-                    .asInt(state.outputTokens);
+                var usage = ((ModelCallEndEvent) event).getUsage();
+                if (usage != null) {
+                    state.inputTokens = usage.getInputTokens();
+                    state.outputTokens = usage.getOutputTokens();
+                }
                 return List.of();
             default:
                 return List.of();

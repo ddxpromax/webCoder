@@ -871,3 +871,126 @@ a {
     padding: 24px 20px;
   }
 }
+
+.usage-page {
+  overflow-y: auto;
+}
+.usage-filter {
+  display: flex;
+  align-items: end;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.usage-filter label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: #aaa;
+  font-size: 12px;
+}
+.usage-filter input {
+  color-scheme: dark;
+  padding: 8px 10px;
+}
+.usage-filter button {
+  min-height: 36px;
+  border: 1px solid #555;
+  border-radius: 7px;
+  color: #f2f2f2;
+  background: #303030;
+  padding: 6px 18px;
+}
+.usage-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.usage-summary div {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border: 1px solid #333;
+  border-radius: 10px;
+  background: #222;
+  padding: 18px;
+}
+.usage-summary span {
+  color: #999;
+  font-size: 12px;
+}
+.usage-summary strong {
+  font-size: 23px;
+  font-variant-numeric: tabular-nums;
+}
+.usage-page .settings-card {
+  margin-bottom: 16px;
+}
+.usage-chart {
+  display: flex;
+  align-items: end;
+  gap: 6px;
+  min-height: 190px;
+  overflow-x: auto;
+  padding-top: 16px;
+}
+.usage-day {
+  height: 160px;
+  min-width: 30px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: end;
+  gap: 4px;
+}
+.usage-day small {
+  color: #8e8e8e;
+  font-size: 9px;
+}
+.usage-bar {
+  position: relative;
+  width: 100%;
+  max-width: 42px;
+  background: #ff7f16;
+  border-radius: 4px 4px 0 0;
+  overflow: hidden;
+}
+.usage-bar-output {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: #815bea;
+}
+.usage-legend {
+  color: #ff7f16;
+  font-size: 11px;
+}
+.usage-legend span {
+  color: #815bea;
+}
+.usage-table-wrap {
+  overflow-x: auto;
+}
+.usage-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.usage-table th,
+.usage-table td {
+  border-bottom: 1px solid #333;
+  padding: 10px;
+  text-align: left;
+}
+.usage-table th:not(:first-child),
+.usage-table td:not(:first-child) {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.usage-table th {
+  color: #929292;
+  font-weight: 600;
+}

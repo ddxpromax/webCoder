@@ -32,6 +32,7 @@ public class HarnessAgentFactory {
     private final MemoryBackendRegistry memoryBackends;
     private final MemoryWritePipeline memoryWrites;
     private final ToolConfigService toolConfig;
+    private final TokenUsageService tokenUsage;
 
     public HarnessAgentFactory(
         ModelRoutingService routing,
@@ -46,7 +47,8 @@ public class HarnessAgentFactory {
         SubagentService subagents,
         MemoryBackendRegistry memoryBackends,
         MemoryWritePipeline memoryWrites,
-        ToolConfigService toolConfig
+        ToolConfigService toolConfig,
+        TokenUsageService tokenUsage
     ) {
         this.routing = routing;
         this.providerModels = providerModels;
@@ -61,6 +63,7 @@ public class HarnessAgentFactory {
         this.memoryBackends = memoryBackends;
         this.memoryWrites = memoryWrites;
         this.toolConfig = toolConfig;
+        this.tokenUsage = tokenUsage;
     }
 
     public String agentName(String agentId) {
@@ -153,6 +156,7 @@ public class HarnessAgentFactory {
             agentId, memoryBackends
         ));
         toolkit.registerTool(new TimeTools(agents));
+        toolkit.registerTool(new TokenUsageTool(agentId, tokenUsage));
         toolkit.registerTool(new WebTools());
         toolkit.registerTool(new SendFileToUserTool(
             workspace, workingDirectory

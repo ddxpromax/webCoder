@@ -13,6 +13,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import io.github.ddxpromax.webcoder.chat.ChatEntity;
 import io.github.ddxpromax.webcoder.chat.ChatService;
 import io.github.ddxpromax.webcoder.agent.AgentStore;
+import io.github.ddxpromax.webcoder.agent.TokenUsageService;
 import io.github.ddxpromax.webcoder.model.ModelRoutingService;
 import java.sql.Connection;
 import java.util.List;
@@ -93,6 +94,62 @@ class ChatPersistenceTests {
 
     @Autowired
     private AgentStore agents;
+
+    @Autowired
+    private TokenUsageService tokenUsage;
+
+    @Test
+    void tokenUsageRecordsAndFiltersUseMySql() throws Exception {
+        String suffix = java.util.UUID.randomUUID().toString();
+        String agentId = "usage-agent-" + suffix;
+        String provider = "usage-provider-" + suffix;
+        String model = "usage-model-" + suffix;
+        String today = java.time.LocalDate.now().toString();
+        tokenUsage.record(
+            agentId, null, provider, model, 80, 20, 1200
+        );
+        tokenUsage.record(
+            agentId, null, provider, model, 40, 10, 900
+        );
+
+        mockMvc.perform(get("/api/token-usage/details")
+                .param("start_date", today)
+                .param("end_date", today)
+                .param("provider", provider)
+                .param("model", model))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$[0].prompt_tokens").value(120))
+            .andExpect(jsonPath("$[0].completion_tokens").value(30))
+            .andExpect(jsonPath("$[0].call_count").value(2));
+
+        mockMvc.perform(get("/api/token-usage")
+                .param("start_date", today)
+                .param("end_date", today)
+                .param("provider", provider)
+                .param("model", model))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.total_prompt_tokens").value(120))
+            .andExpect(jsonPath("$.total_completion_tokens").value(30))
+            .andExpect(jsonPath("$.total_calls").value(2));
+
+        assertThat(tokenUsage.details(
+            today, today, null, null
+        )).anySatisfy(record -> {
+            assertThat(record.get("provider_id")).isEqualTo(provider);
+            assertThat(record.get("prompt_tokens")).isEqualTo(120L);
+        });
+        assertThat(tokenUsage.agentStatsSince(today))
+            .filteredOn(record -> agentId.equals(
+                record.get("agent_id")
+            ))
+            .singleElement()
+            .satisfies(record -> {
+                assertThat(record.get("input_tokens"))
+                    .isEqualTo(120L);
+                assertThat(record.get("turns"))
+                    .isEqualTo(2L);
+            });
+    }
 
     @Test
     void chatMessagesPersistAndLoadThroughMajoShapedApi() throws Exception {

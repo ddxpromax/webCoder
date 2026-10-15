@@ -3,6 +3,8 @@ package io.github.ddxpromax.webcoder.agent;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -12,13 +14,16 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.agentscope.core.agent.RuntimeContext;
 import io.agentscope.core.event.AgentEvent;
+import io.agentscope.core.event.ModelCallEndEvent;
 import io.agentscope.core.event.TextBlockDeltaEvent;
 import io.agentscope.core.event.TextBlockEndEvent;
 import io.agentscope.core.event.TextBlockStartEvent;
 import io.agentscope.core.message.UserMessage;
+import io.agentscope.core.model.ChatUsage;
 import io.agentscope.harness.agent.HarnessAgent;
 import io.github.ddxpromax.webcoder.chat.ChatEntity;
 import io.github.ddxpromax.webcoder.chat.ChatService;
+import io.github.ddxpromax.webcoder.model.ModelRoutingService;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
@@ -136,6 +141,28 @@ class ConsoleControllerTests {
         verify(fixture.chats).saveMessages(anyString(), any());
     }
 
+    @Test
+    void completedModelCallRecordsUsageForTheChat() throws Exception {
+        Fixture fixture = fixture(Flux.just(
+            new ModelCallEndEvent(
+                "reply", new ChatUsage(14, 4, 0.5)
+            )
+        ));
+        List<String> events = fixture.controller.consoleChat(
+            Map.of("input", "Count this", "session_id", "usage-session"),
+            new MockHttpServletRequest()
+        ).collectList().block();
+
+        assertThat(mapper.readTree(events.getLast())
+            .path("usage").path("prompt_tokens").asInt())
+            .isEqualTo(14);
+        verify(fixture.tokenUsage).record(
+            eq("default"), eq("chat-1"),
+            eq("provider"), eq("model"),
+            eq(14), eq(4), anyLong()
+        );
+    }
+
     private Fixture fixture(Flux<AgentEvent> stream) {
         HarnessAgentFactory factory = mock(HarnessAgentFactory.class);
         HarnessAgent.Builder builder =
@@ -148,6 +175,14 @@ class ConsoleControllerTests {
         MemoryCommandService memoryCommands = mock(
             MemoryCommandService.class
         );
+        TokenUsageService tokenUsage = mock(TokenUsageService.class);
+        ModelRoutingService modelRouting = mock(
+            ModelRoutingService.class
+        );
+        when(modelRouting.resolveEffectiveModel(anyString()))
+            .thenReturn(new ModelRoutingService.ModelSlot(
+                "provider", "model"
+            ));
         ChatEntity chat = new ChatEntity();
         chat.setId("chat-1");
         chat.setTitle("Stop this");
@@ -166,10 +201,11 @@ class ConsoleControllerTests {
         return new Fixture(
             new ConsoleController(
                 factory, chats, tasks, turns, approvals,
-                memoryCommands,
+                memoryCommands, tokenUsage, modelRouting,
                 mapper, "0.4.0"
             ),
-            chats, tasks, turns, agent, memoryCommands
+            chats, tasks, turns, agent, memoryCommands,
+            tokenUsage
         );
     }
 
@@ -179,7 +215,8 @@ class ConsoleControllerTests {
         TaskTracker tasks,
         ActiveTurnRegistry turns,
         HarnessAgent agent,
-        MemoryCommandService memoryCommands
+        MemoryCommandService memoryCommands,
+        TokenUsageService tokenUsage
     ) {
     }
 }
