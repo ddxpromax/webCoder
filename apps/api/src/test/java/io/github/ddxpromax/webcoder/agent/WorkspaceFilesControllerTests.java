@@ -85,6 +85,21 @@ class WorkspaceFilesControllerTests {
                 .header("X-Agent-Id", "worker"))
             .andExpect(jsonPath("$[0].path")
                 .value("2026-10-15.md"));
+        mvc.perform(put("/api/workspace/memory/daily/2026-10-16.md")
+                .header("X-Agent-Id", "worker")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"content\":\"Nested note\"}"))
+            .andExpect(status().isOk());
+        mvc.perform(get("/api/workspace/memory/daily/2026-10-16.md")
+                .header("X-Agent-Id", "worker"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.content")
+                .value("Nested note"));
+        mvc.perform(get("/api/workspace/memory")
+                .header("X-Agent-Id", "worker")
+                .param("section", "daily"))
+            .andExpect(jsonPath("$[1].path")
+                .value("daily/2026-10-16.md"));
 
         Files.write(workspace.resolve("image.png"),
             new byte[] {1, 2, 3});

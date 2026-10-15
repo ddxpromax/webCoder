@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
+import { nextTick, onMounted, ref, watch } from 'vue'
 import { apiRequest } from './api'
+import MemoryGraphView from './MemoryGraphView.vue'
 import { workbench } from './state'
 
 interface WorkspaceFile {
@@ -16,12 +17,15 @@ const content = ref('')
 const original = ref('')
 const error = ref('')
 const notice = ref('')
+const showGraph = ref(false)
+const graphRevision = ref(0)
 
 function endpoint(name?: string) {
-  return `/workspace/${section.value}${name ? `/${encodeURIComponent(name)}` : ''}`
+  return `/workspace/${section.value}${name ? `/${name.split('/').map(encodeURIComponent).join('/')}` : ''}`
 }
 
 async function refresh() {
+  showGraph.value = false
   error.value = ''
   selected.value = ''
   content.value = ''
@@ -31,6 +35,28 @@ async function refresh() {
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : 'Could not load files.'
   }
+}
+
+async function reindexMemory() {
+  error.value = ''
+  try {
+    const result = await apiRequest<{ status: string }>(
+      `/agents/${encodeURIComponent(workbench.agentId)}/memory/reindex`,
+      { method: 'POST' },
+      workbench.agentId,
+    )
+    notice.value = result.status === 'completed' ? 'Memory index rebuilt.' : `Memory index: ${result.status}.`
+    graphRevision.value++
+    entries.value = await apiRequest<WorkspaceFile[]>(endpoint(), {}, workbench.agentId)
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : 'Could not rebuild memory index.'
+  }
+}
+
+async function openGraphFile(path: string) {
+  showGraph.value = false
+  await nextTick()
+  await open(path)
 }
 
 async function open(name: string) {
@@ -75,7 +101,11 @@ onMounted(() => void refresh())
         <p class="eyebrow">WORKSPACE</p>
         <h1>Files</h1>
       </div>
-      <button @click="refresh">Refresh</button>
+      <div class="model-list-header">
+        <button v-if="section === 'memory'" @click="reindexMemory">Reindex</button>
+        <button v-if="section === 'memory'" @click="showGraph = true">Graph</button>
+        <button @click="refresh">Refresh</button>
+      </div>
     </header>
     <div class="tab-row">
       <button :class="{ selected: section === 'files' }" @click="section = 'files'">
@@ -87,7 +117,14 @@ onMounted(() => void refresh())
     </div>
     <p v-if="error" class="inline-error" role="alert">{{ error }}</p>
     <p v-if="notice" class="success-notice">{{ notice }}</p>
-    <div class="files-layout">
+    <MemoryGraphView
+      v-if="section === 'memory' && showGraph"
+      :key="graphRevision"
+      :agent-id="workbench.agentId"
+      @close="showGraph = false"
+      @open-file="openGraphFile"
+    />
+    <div v-else class="files-layout">
       <div class="settings-card">
         <button
           v-for="entry in entries"

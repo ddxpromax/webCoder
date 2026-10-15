@@ -176,39 +176,66 @@ public class WorkspaceFilesController {
 
     @GetMapping("/workspace/memory")
     public List<Map<String, Object>> memoryFiles(
+        @RequestParam(required = false) String section,
         HttpServletRequest request
     ) {
-        return listMarkdownFiles(
-            workspace(agentId(request)).resolve("memory")
+        return listMemoryMarkdownFiles(
+            workspace(agentId(request)).resolve("memory"),
+            section
         );
     }
 
     @GetMapping("/agents/{agentId}/workspace/memory")
     public List<Map<String, Object>> agentMemoryFiles(
-        @PathVariable String agentId
+        @PathVariable String agentId,
+        @RequestParam(required = false) String section
     ) {
-        return listMarkdownFiles(workspace(agentId).resolve("memory"));
-    }
-
-    @GetMapping("/workspace/memory/{name}")
-    public ResponseEntity<?> readMemoryFile(
-        @PathVariable String name,
-        HttpServletRequest request
-    ) {
-        return readMarkdownFile(
-            workspace(agentId(request)).resolve("memory"), name
+        return listMemoryMarkdownFiles(
+            workspace(agentId).resolve("memory"), section
         );
     }
 
-    @PutMapping("/workspace/memory/{name}")
+    @GetMapping("/workspace/memory/**")
+    public ResponseEntity<?> readMemoryFile(
+        HttpServletRequest request
+    ) {
+        return readMemoryMarkdownFile(
+            workspace(agentId(request)).resolve("memory"),
+            relativePath(request, "/workspace/memory/")
+        );
+    }
+
+    @GetMapping("/agents/{agentId}/workspace/memory/**")
+    public ResponseEntity<?> agentReadMemoryFile(
+        @PathVariable String agentId,
+        HttpServletRequest request
+    ) {
+        return readMemoryMarkdownFile(
+            workspace(agentId).resolve("memory"),
+            relativePath(request, "/workspace/memory/")
+        );
+    }
+
+    @PutMapping("/workspace/memory/**")
     public ResponseEntity<?> writeMemoryFile(
-        @PathVariable String name,
         @RequestBody Map<String, String> body,
         HttpServletRequest request
     ) {
-        return writeMarkdownFile(
-            workspace(agentId(request)).resolve("memory"), name,
-            body
+        return writeMemoryMarkdownFile(
+            workspace(agentId(request)).resolve("memory"),
+            relativePath(request, "/workspace/memory/"), body
+        );
+    }
+
+    @PutMapping("/agents/{agentId}/workspace/memory/**")
+    public ResponseEntity<?> agentWriteMemoryFile(
+        @PathVariable String agentId,
+        @RequestBody Map<String, String> body,
+        HttpServletRequest request
+    ) {
+        return writeMemoryMarkdownFile(
+            workspace(agentId).resolve("memory"),
+            relativePath(request, "/workspace/memory/"), body
         );
     }
 
@@ -382,6 +409,7 @@ public class WorkspaceFilesController {
         List<Map<String, Object>> result = new ArrayList<>();
         try (var entries = Files.list(root)) {
             entries.filter(Files::isRegularFile)
+                .filter(path -> !Files.isSymbolicLink(path))
                 .filter(path -> path.getFileName().toString()
                     .endsWith(".md"))
                 .filter(path -> !skipped(path.getFileName()
@@ -404,6 +432,110 @@ public class WorkspaceFilesController {
             );
         }
         return result;
+    }
+
+    private List<Map<String, Object>> listMemoryMarkdownFiles(
+        Path root,
+        String section
+    ) {
+        if (!Files.isDirectory(root)) {
+            return List.of();
+        }
+        List<Map<String, Object>> result = new ArrayList<>();
+        try (var entries = Files.walk(root)) {
+            entries.filter(Files::isRegularFile)
+                .filter(path -> !Files.isSymbolicLink(path))
+                .filter(path -> path.getFileName().toString()
+                    .endsWith(".md"))
+                .filter(path -> !skipped(path.getFileName()
+                    .toString()))
+                .filter(path -> {
+                    String relative = root.relativize(path)
+                        .toString().replace('\\', '/');
+                    if ("daily".equals(section)) {
+                        return !relative.startsWith("digest/");
+                    }
+                    if ("digest".equals(section)) {
+                        return relative.startsWith("digest/");
+                    }
+                    return true;
+                })
+                .forEach(path -> {
+                    try {
+                        result.add(fileEntry(root, path,
+                            Files.readAttributes(path,
+                                BasicFileAttributes.class)));
+                    } catch (IOException ignored) {
+                        // A file removed mid-list is omitted.
+                    }
+                });
+        } catch (IOException exception) {
+            throw new IllegalStateException(
+                "Failed to list memory files", exception
+            );
+        }
+        return result;
+    }
+
+    private ResponseEntity<?> readMemoryMarkdownFile(
+        Path root,
+        String relative
+    ) {
+        Path target = safeMemoryPath(root, relative);
+        if (target == null) {
+            return ResponseEntity.badRequest().body(Map.of(
+                "error", "Invalid memory path"
+            ));
+        }
+        if (!Files.isRegularFile(target)) {
+            return ResponseEntity.notFound().build();
+        }
+        try {
+            return ResponseEntity.ok(Map.of(
+                "content", Files.readString(target)
+            ));
+        } catch (IOException exception) {
+            return ResponseEntity.internalServerError().body(Map.of(
+                "error", exception.getMessage()
+            ));
+        }
+    }
+
+    private ResponseEntity<?> writeMemoryMarkdownFile(
+        Path root,
+        String relative,
+        Map<String, String> body
+    ) {
+        Path target = safeMemoryPath(root, relative);
+        if (target == null) {
+            return ResponseEntity.badRequest().body(Map.of(
+                "error", "Invalid memory path"
+            ));
+        }
+        try {
+            Files.createDirectories(target.getParent());
+            Files.writeString(target,
+                body.getOrDefault("content", ""));
+            return ResponseEntity.ok(Map.of("written", true));
+        } catch (IOException exception) {
+            return ResponseEntity.internalServerError().body(Map.of(
+                "error", exception.getMessage()
+            ));
+        }
+    }
+
+    private static Path safeMemoryPath(
+        Path root,
+        String relative
+    ) {
+        if (relative == null || relative.isBlank()
+            || !relative.endsWith(".md")) {
+            return null;
+        }
+        Path target = safePath(root, relative);
+        return target == null || target.equals(
+            root.toAbsolutePath().normalize()
+        ) ? null : target;
     }
 
     private ResponseEntity<?> readMarkdownFile(
