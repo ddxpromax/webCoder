@@ -80,6 +80,32 @@ public class ChatService {
             return chatRepository.save(chat);
         }
 
+        // The web client may create an empty chat before its first agent turn.
+        // ChatSpecDto exposes that placeholder as console:<chat UUID>.
+        // Claim the placeholder instead of creating a second chat for the
+        // same visible conversation.
+        if (sessionId != null && sessionId.startsWith("console:")) {
+            String placeholderId = sessionId.substring("console:".length());
+            ChatEntity placeholder = chatRepository.findById(placeholderId)
+                .orElse(null);
+            if (placeholder != null
+                && (placeholder.getSessionId() == null
+                    || placeholder.getSessionId().isBlank())
+                && ("default".equals(placeholder.getAgentId())
+                    || Objects.equals(placeholder.getAgentId(), agentId))) {
+                placeholder.setSessionId(sessionId);
+                placeholder.setAgentId(agentId);
+                if ("New Chat".equals(placeholder.getTitle())
+                    && firstPrompt != null && !firstPrompt.isBlank()) {
+                    placeholder.setTitle(firstPrompt.substring(
+                        0, Math.min(10, firstPrompt.length())
+                    ));
+                }
+                placeholder.setUpdatedAt(now());
+                return chatRepository.save(placeholder);
+            }
+        }
+
         ChatEntity chat = new ChatEntity();
         chat.setId(UUID.randomUUID().toString());
         chat.setSessionId(sessionId);
