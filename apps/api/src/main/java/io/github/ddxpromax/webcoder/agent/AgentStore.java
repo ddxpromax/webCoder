@@ -19,6 +19,7 @@ public class AgentStore {
     public static final String DEFAULT_AGENT_NAME = "majo";
     public static final String DEFAULT_AGENT_DESC =
         "Majo AI Coding Agent";
+    public static final int MAX_PROJECT_DIRS = 10;
 
     private static final Pattern AGENT_ID_PATTERN = Pattern.compile(
         "^[A-Za-z0-9_-]+$"
@@ -267,6 +268,115 @@ public class AgentStore {
         }
         config.put("agent_order", new ArrayList<>(agentIds));
         files.writeAtomic(agentsFile, config);
+    }
+
+    public synchronized String getProjectDir(String agentId) {
+        Map<String, Object> profile = getProfile(agentId);
+        return profile == null ? null
+            : text(profile.get("project_dir"), null);
+    }
+
+    public synchronized List<Map<String, String>> getProjectDirs(
+        String agentId
+    ) {
+        Map<String, Object> profile = getProfile(agentId);
+        return profile == null ? List.of() : readProjectDirs(profile);
+    }
+
+    public synchronized void setProjectDir(
+        String agentId,
+        String projectDir
+    ) {
+        Map<String, Object> config = loadConfig();
+        Map<String, Object> profiles = profiles(config);
+        Map<String, Object> profile = existingProfile(profiles, agentId);
+        if (projectDir == null || projectDir.isBlank()) {
+            profile.remove("project_dir");
+        } else {
+            profile.put("project_dir", projectDir);
+            List<Map<String, String>> dirs = new ArrayList<>();
+            dirs.add(Map.of("path", projectDir, "label", ""));
+            for (Map<String, String> entry : readProjectDirs(profile)) {
+                if (!projectDir.equals(entry.get("path"))
+                    && dirs.size() < MAX_PROJECT_DIRS) {
+                    dirs.add(entry);
+                }
+            }
+            profile.put("project_dirs", dirs);
+        }
+        profiles.put(agentId, profile);
+        config.put("profiles", profiles);
+        files.writeAtomic(agentsFile, config);
+    }
+
+    public synchronized void setProjectDirs(
+        String agentId,
+        List<Map<String, String>> projectDirs
+    ) {
+        Map<String, Object> config = loadConfig();
+        Map<String, Object> profiles = profiles(config);
+        Map<String, Object> profile = existingProfile(profiles, agentId);
+        List<Map<String, String>> cleaned = new ArrayList<>();
+        for (Map<String, String> entry : projectDirs == null
+            ? List.<Map<String, String>>of() : projectDirs) {
+            String path = entry == null ? null : entry.get("path");
+            if (path == null || path.isBlank()) {
+                continue;
+            }
+            if (!Files.isDirectory(
+                Path.of(path.trim()).toAbsolutePath().normalize()
+            )) {
+                continue;
+            }
+            cleaned.add(Map.of(
+                "path", path.trim(),
+                "label", text(entry.get("label"), "")
+            ));
+            if (cleaned.size() >= MAX_PROJECT_DIRS) {
+                break;
+            }
+        }
+        if (cleaned.isEmpty()) {
+            profile.remove("project_dirs");
+            profile.remove("project_dir");
+        } else {
+            profile.put("project_dirs", cleaned);
+            profile.put("project_dir", cleaned.getFirst().get("path"));
+        }
+        profiles.put(agentId, profile);
+        config.put("profiles", profiles);
+        files.writeAtomic(agentsFile, config);
+    }
+
+    private static List<Map<String, String>> readProjectDirs(
+        Map<String, Object> profile
+    ) {
+        List<Map<String, String>> result = new ArrayList<>();
+        if (profile.get("project_dirs") instanceof List<?> list) {
+            for (Object item : list) {
+                if (item instanceof Map<?, ?> entry
+                    && entry.get("path") != null) {
+                    result.add(Map.of(
+                        "path", String.valueOf(entry.get("path")),
+                        "label", text(entry.get("label"), "")
+                    ));
+                }
+            }
+        }
+        return result;
+    }
+
+    private static Map<String, Object> existingProfile(
+        Map<String, Object> profiles,
+        String agentId
+    ) {
+        Map<String, Object> profile = asMap(profiles.get(agentId));
+        if (profile.isEmpty()) {
+            throw new IllegalArgumentException(
+                "Agent '" + agentId + "' not found"
+            );
+        }
+        return profile;
     }
 
     public void setAgentEnabled(String agentId, boolean enabled) {
