@@ -28,6 +28,7 @@ public class HarnessAgentFactory {
     private final FileGuardService fileGuard;
     private final CodingModeService codingMode;
     private final MajoWorkingDirectory workingDirectory;
+    private final SubagentService subagents;
 
     public HarnessAgentFactory(
         ModelRoutingService routing,
@@ -38,7 +39,8 @@ public class HarnessAgentFactory {
         ToolGuardService toolGuard,
         FileGuardService fileGuard,
         CodingModeService codingMode,
-        MajoWorkingDirectory workingDirectory
+        MajoWorkingDirectory workingDirectory,
+        SubagentService subagents
     ) {
         this.routing = routing;
         this.providerModels = providerModels;
@@ -49,6 +51,7 @@ public class HarnessAgentFactory {
         this.fileGuard = fileGuard;
         this.codingMode = codingMode;
         this.workingDirectory = workingDirectory;
+        this.subagents = subagents;
     }
 
     public String agentName(String agentId) {
@@ -108,7 +111,7 @@ public class HarnessAgentFactory {
             .agentId(agentId)
             .sysPrompt(ProtectedPrompt.withContract(systemPrompt))
             .model(model)
-            .toolkit(toolkitFor(workspace))
+            .toolkit(toolkitFor(agentId, workspace))
             .workspace(workspace)
             .hook(new SystemPromptFilesHook(
                 agents.workspaceDirForAgent(agentId)
@@ -125,11 +128,14 @@ public class HarnessAgentFactory {
             ));
     }
 
-    Toolkit toolkitFor(Path workspace) {
+    Toolkit toolkitFor(String agentId, Path workspace) {
         Toolkit toolkit = new Toolkit();
         toolkit.registerTool(new WorkspaceTools(workspace));
         toolkit.registerTool(new ShellTool(workspace));
         toolkit.registerTool(new GitTools(workspace));
+        toolkit.registerTool(new SubagentTools(
+            agentId, workspace, subagents
+        ));
         return toolkit;
     }
 }
