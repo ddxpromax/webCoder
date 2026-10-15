@@ -145,6 +145,28 @@ class ChatPersistenceTests {
     }
 
     @Test
+    void chatLookupIndexesSupportAgentAndSessionQueries() {
+        List<String> names = jdbcTemplate.queryForList(
+            """
+            SELECT DISTINCT index_name
+            FROM information_schema.statistics
+            WHERE table_schema = DATABASE()
+              AND table_name = 'chats'
+              AND index_name IN (
+                'idx_chats_agent_archived_updated',
+                'idx_chats_session_updated',
+                'idx_chats_archived_updated'
+              )
+            """, String.class
+        );
+        assertThat(names).containsExactlyInAnyOrder(
+            "idx_chats_agent_archived_updated",
+            "idx_chats_session_updated",
+            "idx_chats_archived_updated"
+        );
+    }
+
+    @Test
     void renamePinArchiveAndUnarchiveFollowChatApi() throws Exception {
         ChatEntity chat = chatService.create();
 

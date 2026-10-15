@@ -1,49 +1,30 @@
 package io.github.ddxpromax.webcoder.chat;
 
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.Id;
-import jakarta.persistence.Table;
 import java.time.LocalDateTime;
 
-@Entity
-@Table(name = "chats")
 public class ChatEntity {
-    @Id
-    @Column(length = 36, nullable = false)
     private String id;
 
-    @Column(length = 255, nullable = false)
     private String title = "New Chat";
 
-    @Column(length = 10, nullable = false)
     private String status = "idle";
 
-    @Column(name = "session_id", length = 128, nullable = false)
     private String sessionId = "";
 
-    @Column(name = "user_id", length = 64, nullable = false)
     private String userId = "default";
 
-    @Column(length = 64, nullable = false)
     private String channel = "console";
 
-    @Column(nullable = false)
     private Boolean pinned = false;
 
-    @Column(name = "archived_at")
     private LocalDateTime archivedAt;
 
-    @Column(name = "agent_id", length = 64)
     private String agentId = "default";
 
-    @Column(name = "project_dir", length = 1024)
     private String projectDir;
 
-    @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
 
-    @Column(name = "updated_at", nullable = false)
     private LocalDateTime updatedAt;
 
     public String getId() { return id; }

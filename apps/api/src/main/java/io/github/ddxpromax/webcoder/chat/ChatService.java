@@ -187,6 +187,15 @@ public class ChatService {
     }
 
     @Transactional
+    public ChatEntity setPinned(String chatId, boolean pinned) {
+        return chatRepository.findById(chatId).map(chat -> {
+            chat.setPinned(pinned);
+            chat.setUpdatedAt(now());
+            return chatRepository.save(chat);
+        }).orElse(null);
+    }
+
+    @Transactional
     public void saveMessages(
         String chatId,
         List<Map<String, String>> messages
