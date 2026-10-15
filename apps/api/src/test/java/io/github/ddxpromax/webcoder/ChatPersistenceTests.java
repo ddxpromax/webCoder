@@ -99,6 +99,54 @@ class ChatPersistenceTests {
     private TokenUsageService tokenUsage;
 
     @Test
+    void agentSkillEndpointsPersistWorkspaceManifest() throws Exception {
+        String skillName = "review_" + java.util.UUID.randomUUID()
+            .toString().replace("-", "");
+        String content = "---\nname: " + skillName
+            + "\ndescription: Review a code change\n---\n"
+            + "Read the diff and describe any defects.\n";
+        String body = new com.fasterxml.jackson.databind.ObjectMapper()
+            .writeValueAsString(Map.of(
+                "name", skillName,
+                "content", content,
+                "enable", true
+            ));
+
+        mockMvc.perform(post("/api/agents/default/skills")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.name").value(skillName));
+        mockMvc.perform(get("/api/agents/default/skills"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$[?(@.name=='" + skillName
+                + "')].enabled").value(
+                    org.hamcrest.Matchers.contains(true)
+                ));
+        java.nio.file.Path reference = agents
+            .workspaceDirForAgent("default")
+            .resolve("skills").resolve(skillName)
+            .resolve("references/guide.md");
+        java.nio.file.Files.createDirectories(
+            reference.getParent()
+        );
+        java.nio.file.Files.writeString(reference, "Read tests.");
+        mockMvc.perform(get(
+                "/api/agents/default/skills/{name}/files/references/guide.md",
+                skillName
+            ))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.content").value("Read tests."));
+        mockMvc.perform(post("/api/agents/default/skills/{name}/disable",
+                skillName))
+            .andExpect(status().isOk());
+        mockMvc.perform(delete("/api/agents/default/skills/{name}",
+                skillName))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.deleted").value(true));
+    }
+
+    @Test
     void tokenUsageRecordsAndFiltersUseMySql() throws Exception {
         String suffix = java.util.UUID.randomUUID().toString();
         String agentId = "usage-agent-" + suffix;

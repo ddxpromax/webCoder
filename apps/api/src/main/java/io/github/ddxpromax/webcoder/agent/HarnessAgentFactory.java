@@ -1,11 +1,14 @@
 package io.github.ddxpromax.webcoder.agent;
 
 import io.agentscope.core.tool.Toolkit;
+import io.agentscope.core.skill.SkillFilter;
 import io.agentscope.extensions.model.openai.OpenAIChatModel;
 import io.agentscope.harness.agent.HarnessAgent;
 import io.github.ddxpromax.webcoder.model.ModelRoutingService;
 import io.github.ddxpromax.webcoder.model.ProviderModelRepository;
 import io.github.ddxpromax.webcoder.settings.SettingsService;
+import io.github.ddxpromax.webcoder.skill.MaterializeSkillTool;
+import io.github.ddxpromax.webcoder.skill.SkillWorkspaceService;
 import java.nio.file.Path;
 import java.nio.file.Files;
 import java.io.IOException;
@@ -33,6 +36,7 @@ public class HarnessAgentFactory {
     private final MemoryWritePipeline memoryWrites;
     private final ToolConfigService toolConfig;
     private final TokenUsageService tokenUsage;
+    private final SkillWorkspaceService skills;
 
     public HarnessAgentFactory(
         ModelRoutingService routing,
@@ -48,7 +52,8 @@ public class HarnessAgentFactory {
         MemoryBackendRegistry memoryBackends,
         MemoryWritePipeline memoryWrites,
         ToolConfigService toolConfig,
-        TokenUsageService tokenUsage
+        TokenUsageService tokenUsage,
+        SkillWorkspaceService skills
     ) {
         this.routing = routing;
         this.providerModels = providerModels;
@@ -64,6 +69,7 @@ public class HarnessAgentFactory {
         this.memoryWrites = memoryWrites;
         this.toolConfig = toolConfig;
         this.tokenUsage = tokenUsage;
+        this.skills = skills;
     }
 
     public String agentName(String agentId) {
@@ -125,6 +131,9 @@ public class HarnessAgentFactory {
             .model(model)
             .toolkit(toolkitFor(agentId, workspace))
             .workspace(workspace)
+            .skillFilter(SkillFilter.only(
+                skills.enabledNames(workspace).toArray(String[]::new)
+            ))
             .hook(new SystemPromptFilesHook(
                 agents.workspaceDirForAgent(agentId)
             ))
@@ -157,6 +166,9 @@ public class HarnessAgentFactory {
         ));
         toolkit.registerTool(new TimeTools(agents));
         toolkit.registerTool(new TokenUsageTool(agentId, tokenUsage));
+        toolkit.registerTool(new MaterializeSkillTool(
+            workspace, skills
+        ));
         toolkit.registerTool(new WebTools());
         toolkit.registerTool(new SendFileToUserTool(
             workspace, workingDirectory
