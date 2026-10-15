@@ -7,6 +7,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.github.ddxpromax.webcoder.agent.JsonFileStore;
+import io.github.ddxpromax.webcoder.agent.MajoWorkingDirectory;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
@@ -24,7 +26,8 @@ class SettingsLanguageControllerTests {
         ObjectMapper mapper = new ObjectMapper();
         var mvc = MockMvcBuilders.standaloneSetup(
             new SettingsLanguageController(
-                workingDir.toString(), mapper
+                new MajoWorkingDirectory(workingDir.toString()),
+                new JsonFileStore(mapper)
             )
         ).build();
 

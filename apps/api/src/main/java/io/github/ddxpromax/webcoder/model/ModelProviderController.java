@@ -1,8 +1,11 @@
 package io.github.ddxpromax.webcoder.model;
 
+import io.github.ddxpromax.webcoder.agent.AgentStore;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -25,12 +28,16 @@ import org.springframework.web.bind.annotation.PostMapping;
 @RequestMapping("/api")
 @CrossOrigin(origins = "*")
 public class ModelProviderController {
+    private static final Logger log =
+        LoggerFactory.getLogger(ModelProviderController.class);
+
     private final ModelRoutingService routing;
     private final ProviderRepository providerRepo;
     private final ProviderModelRepository providerModelRepo;
     private final ModelConfigRepository modelConfigRepo;
     private final ObjectMapper mapper;
     private final ModelDiscoveryService discoveryService;
+    private final AgentStore agents;
 
     public ModelProviderController(
         ModelRoutingService routing,
@@ -38,7 +45,8 @@ public class ModelProviderController {
         ProviderModelRepository providerModelRepo,
         ModelConfigRepository modelConfigRepo,
         ObjectMapper mapper,
-        ModelDiscoveryService discoveryService
+        ModelDiscoveryService discoveryService,
+        AgentStore agents
     ) {
         this.routing = routing;
         this.providerRepo = providerRepo;
@@ -46,6 +54,7 @@ public class ModelProviderController {
         this.modelConfigRepo = modelConfigRepo;
         this.mapper = mapper;
         this.discoveryService = discoveryService;
+        this.agents = agents;
     }
 
     @GetMapping("/models/active")
@@ -414,6 +423,23 @@ public class ModelProviderController {
                 providerId,
                 modelId
             );
+            if (agents.getProfile(agentId) != null) {
+                try {
+                    Map<String, Object> selected = new LinkedHashMap<>();
+                    selected.put("provider_id", providerId);
+                    selected.put("model", modelId);
+                    agents.updateAgent(
+                        agentId,
+                        Map.of("active_model", selected)
+                    );
+                } catch (Exception exception) {
+                    log.warn(
+                        "Failed to sync active_model to profile for agent {}",
+                        agentId,
+                        exception
+                    );
+                }
+            }
             return ResponseEntity.ok(
                 activeInfo(routing.resolveAgentModel(agentId))
             );

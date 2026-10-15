@@ -12,17 +12,21 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 
 import io.github.ddxpromax.webcoder.chat.ChatEntity;
 import io.github.ddxpromax.webcoder.chat.ChatService;
+import io.github.ddxpromax.webcoder.agent.AgentStore;
 import io.github.ddxpromax.webcoder.model.ModelRoutingService;
 import java.sql.Connection;
 import java.util.List;
 import java.util.Map;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.AfterAll;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.web.servlet.MockMvc;
@@ -35,6 +39,34 @@ import org.testcontainers.containers.MySQLContainer;
 @AutoConfigureMockMvc
 @Import(ChatPersistenceTests.MySqlTestConfiguration.class)
 class ChatPersistenceTests {
+    private static final java.nio.file.Path agentWorkingDir =
+        java.nio.file.Path.of(
+            System.getProperty("java.io.tmpdir"),
+            "webcoder-test-" + java.util.UUID.randomUUID()
+        );
+
+    @DynamicPropertySource
+    static void agentWorkingDirectory(DynamicPropertyRegistry registry) {
+        registry.add(
+            "majo.working-dir",
+            () -> agentWorkingDir.toString()
+        );
+    }
+
+    @AfterAll
+    static void deleteAgentWorkingDirectory() throws Exception {
+        if (!java.nio.file.Files.exists(agentWorkingDir)) {
+            return;
+        }
+        try (var paths = java.nio.file.Files.walk(agentWorkingDir)) {
+            for (var path : paths.sorted(
+                java.util.Comparator.reverseOrder()
+            ).toList()) {
+                java.nio.file.Files.deleteIfExists(path);
+            }
+        }
+    }
+
     @TestConfiguration(proxyBeanMethods = false)
     static class MySqlTestConfiguration {
         @Bean
@@ -58,6 +90,9 @@ class ChatPersistenceTests {
 
     @Autowired
     private ModelRoutingService modelRouting;
+
+    @Autowired
+    private AgentStore agents;
 
     @Test
     void chatMessagesPersistAndLoadThroughMajoShapedApi() throws Exception {
@@ -1131,5 +1166,43 @@ class ChatPersistenceTests {
         );
         assertThat(fallback.getModelName())
             .isEqualTo("fallback-model");
+    }
+
+    @Test
+    void agentModelSelectionSyncsAgentProfile() throws Exception {
+        String agentId = "test-"
+            + java.util.UUID.randomUUID().toString().substring(0, 8);
+        agents.createAgent(Map.of("id", agentId));
+        try {
+            mockMvc.perform(put("/api/models/active")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("""
+                        {
+                          "scope":"agent",
+                          "agent_id":"%s",
+                          "provider_id":"openai",
+                          "model":"gpt-5.2"
+                        }
+                        """.formatted(agentId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.active_llm.model")
+                    .value("gpt-5.2"));
+
+            @SuppressWarnings("unchecked")
+            Map<String, Object> selected = (Map<String, Object>)
+                agents.getProfile(agentId).get("active_model");
+            assertThat(selected).containsEntry(
+                "provider_id", "openai"
+            ).containsEntry("model", "gpt-5.2");
+        } finally {
+            jdbcTemplate.update(
+                """
+                DELETE FROM active_models
+                WHERE scope = 'agent' AND agent_id = ?
+                """,
+                agentId
+            );
+            agents.deleteAgent(agentId);
+        }
     }
 }
