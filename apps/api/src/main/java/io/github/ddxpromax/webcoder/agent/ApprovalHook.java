@@ -36,6 +36,7 @@ public class ApprovalHook implements Hook, RuntimeContextAware {
     private final ApprovalStore store;
     private final ToolGuardService guard;
     private final FileGuardService fileGuard;
+    private final ToolConfigService toolConfig;
     private final Path workspace;
     private final AtomicReference<RuntimeContext> context =
         new AtomicReference<>();
@@ -46,6 +47,7 @@ public class ApprovalHook implements Hook, RuntimeContextAware {
         ApprovalStore store,
         ToolGuardService guard,
         FileGuardService fileGuard,
+        ToolConfigService toolConfig,
         Path workspace
     ) {
         this.agentId = agentId;
@@ -53,6 +55,7 @@ public class ApprovalHook implements Hook, RuntimeContextAware {
         this.store = store;
         this.guard = guard;
         this.fileGuard = fileGuard;
+        this.toolConfig = toolConfig;
         this.workspace = workspace;
     }
 
@@ -68,6 +71,13 @@ public class ApprovalHook implements Hook, RuntimeContextAware {
         }
         ToolUseBlock toolUse = acting.getToolUse();
         if (toolUse == null) {
+            return Mono.just(event);
+        }
+        if (!toolConfig.isEnabled(agentId, toolUse.getName())) {
+            acting.setToolUse(rejected(
+                toolUse,
+                "This tool is disabled for the current agent."
+            ));
             return Mono.just(event);
         }
         String reason = guard.check(

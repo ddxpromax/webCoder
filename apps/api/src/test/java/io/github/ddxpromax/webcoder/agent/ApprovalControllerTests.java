@@ -119,6 +119,7 @@ class ApprovalControllerTests {
             "default", agents, store,
             new ToolGuardService(agents),
             new FileGuardService(agents),
+            new ToolConfigService(agents),
             workingDir
         );
         hook.setRuntimeContext(RuntimeContext.builder()

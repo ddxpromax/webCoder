@@ -31,6 +31,7 @@ public class HarnessAgentFactory {
     private final SubagentService subagents;
     private final MemoryBackendRegistry memoryBackends;
     private final MemoryWritePipeline memoryWrites;
+    private final ToolConfigService toolConfig;
 
     public HarnessAgentFactory(
         ModelRoutingService routing,
@@ -44,7 +45,8 @@ public class HarnessAgentFactory {
         MajoWorkingDirectory workingDirectory,
         SubagentService subagents,
         MemoryBackendRegistry memoryBackends,
-        MemoryWritePipeline memoryWrites
+        MemoryWritePipeline memoryWrites,
+        ToolConfigService toolConfig
     ) {
         this.routing = routing;
         this.providerModels = providerModels;
@@ -58,6 +60,7 @@ public class HarnessAgentFactory {
         this.subagents = subagents;
         this.memoryBackends = memoryBackends;
         this.memoryWrites = memoryWrites;
+        this.toolConfig = toolConfig;
     }
 
     public String agentName(String agentId) {
@@ -134,7 +137,7 @@ public class HarnessAgentFactory {
             ))
             .hook(new ApprovalHook(
                 agentId, agents, approvals, toolGuard,
-                fileGuard, workspace
+                fileGuard, toolConfig, workspace
             ));
     }
 

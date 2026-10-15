@@ -136,6 +136,25 @@ public class AgentStore {
         return text(profile.get("approval_level"), "AUTO");
     }
 
+    public synchronized Map<String, Object> getToolsConfig(
+        String agentId
+    ) {
+        Map<String, Object> profile = getProfile(agentId);
+        if (profile == null) {
+            throw new IllegalArgumentException(
+                "Agent '" + agentId + "' not found"
+            );
+        }
+        return asMap(profile.get("tools"));
+    }
+
+    public synchronized void saveToolsConfig(
+        String agentId,
+        Map<String, Object> tools
+    ) {
+        updateAgent(agentId, Map.of("tools", tools));
+    }
+
     public synchronized void saveRunningConfig(
         String agentId,
         Map<String, Object> running,

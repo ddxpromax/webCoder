@@ -7,6 +7,7 @@ import FilesPage from '@/majo/FilesPage.vue'
 import AgentsPage from '@/majo/AgentsPage.vue'
 import ModelsPage from '@/majo/ModelsPage.vue'
 import SettingsPage from '@/majo/SettingsPage.vue'
+import ToolsPage from '@/majo/ToolsPage.vue'
 import LoginPage from '@/majo/LoginPage.vue'
 
 const router = createRouter({
@@ -25,6 +26,7 @@ const router = createRouter({
         { path: 'agents', component: AgentsPage },
         { path: 'models', component: ModelsPage },
         { path: 'settings', component: SettingsPage },
+        { path: 'tools', component: ToolsPage },
       ],
     },
   ],

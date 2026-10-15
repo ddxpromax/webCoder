@@ -687,6 +687,37 @@ a {
   background: #333 !important;
   color: #fff !important;
 }
+.tool-list .provider-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.tool-enabled {
+  color: #8cdbac;
+}
+.tool-disabled {
+  color: #888;
+}
+.tool-detail {
+  align-self: start;
+}
+.tool-setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 14px 0;
+  border-top: 1px solid #343434;
+}
+.tool-setting-row p {
+  margin: 4px 0 0;
+}
+.tool-setting-row input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--majo-accent);
+}
 .model-list-header {
   display: flex;
   align-items: center;
