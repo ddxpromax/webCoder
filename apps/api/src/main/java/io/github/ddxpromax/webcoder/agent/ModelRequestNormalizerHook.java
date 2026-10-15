@@ -11,6 +11,7 @@ import io.agentscope.core.message.ContentBlock;
 import io.agentscope.core.message.DataBlock;
 import io.agentscope.core.message.ImageBlock;
 import io.agentscope.core.message.Msg;
+import io.agentscope.core.message.MsgRole;
 import io.agentscope.core.message.TextBlock;
 import io.agentscope.core.message.ToolResultBlock;
 import io.agentscope.core.message.URLSource;
@@ -47,6 +48,8 @@ public class ModelRequestNormalizerHook implements Hook {
     private final String agentId;
     private final ModelRoutingService modelRoutingService;
     private final ProviderModelRepository providerModelRepo;
+    private final AgentStore agents;
+    private final MemoryBackendRegistry memoryBackends;
 
     public ModelRequestNormalizerHook(String agentId,
                                       ModelRoutingService modelRoutingService,
@@ -54,6 +57,22 @@ public class ModelRequestNormalizerHook implements Hook {
         this.agentId = agentId;
         this.modelRoutingService = modelRoutingService;
         this.providerModelRepo = providerModelRepo;
+        this.agents = null;
+        this.memoryBackends = null;
+    }
+
+    public ModelRequestNormalizerHook(
+        String agentId,
+        ModelRoutingService modelRoutingService,
+        ProviderModelRepository providerModelRepo,
+        AgentStore agents,
+        MemoryBackendRegistry memoryBackends
+    ) {
+        this.agentId = agentId;
+        this.modelRoutingService = modelRoutingService;
+        this.providerModelRepo = providerModelRepo;
+        this.agents = agents;
+        this.memoryBackends = memoryBackends;
     }
 
     @Override
@@ -160,6 +179,8 @@ public class ModelRequestNormalizerHook implements Hook {
                 pre.setInputMessages(rebuilt);
             }
 
+            injectAutoMemoryRecall(pre, rebuilt);
+
         } catch (Exception e) {
             // Fail open — a broken compaction must never break a call.
             log.debug("[normalizer] request normalization skipped: {}", e.getMessage());
@@ -170,6 +191,91 @@ public class ModelRequestNormalizerHook implements Hook {
     @Override
     public int priority() {
         return 5;
+    }
+
+    private void injectAutoMemoryRecall(
+        PreReasoningEvent event,
+        List<Msg> messages
+    ) {
+        if (memoryBackends == null || agents == null) {
+            return;
+        }
+        try {
+            int maxResults = autoSearchMaxResults();
+            if (maxResults <= 0) {
+                return;
+            }
+            String latestUser = null;
+            for (int i = messages.size() - 1; i >= 0; i--) {
+                Msg message = messages.get(i);
+                if (message.getRole() == MsgRole.USER) {
+                    latestUser = message.getTextContent();
+                    break;
+                }
+            }
+            if (latestUser == null || latestUser.isBlank()
+                || latestUser.startsWith("<memory_recall>")) {
+                return;
+            }
+            MemoryBackend backend = memoryBackends.resolve(agentId);
+            if (backend == null) {
+                return;
+            }
+            List<MemoryHit> hits = backend.search(
+                latestUser, maxResults
+            );
+            if (hits.isEmpty()) {
+                return;
+            }
+            StringBuilder reminder = new StringBuilder(
+                "<memory_recall>\n"
+            );
+            for (MemoryHit hit : hits) {
+                reminder.append("- ").append(hit.source());
+                if (!hit.snippet().isBlank()) {
+                    String snippet = hit.snippet();
+                    reminder.append(": ").append(
+                        snippet.length() > 200
+                            ? snippet.substring(0, 200) + "..."
+                            : snippet
+                    );
+                }
+                reminder.append('\n');
+            }
+            reminder.append("</memory_recall>\n")
+                .append("These long-term memory entries may be relevant. ")
+                .append("Use memory_search or read_file for details; ")
+                .append("do not mention this reminder.");
+            List<Msg> request = new ArrayList<>(
+                event.getInputMessages()
+            );
+            request.add(Msg.builder()
+                .name("system")
+                .role(MsgRole.SYSTEM)
+                .content(TextBlock.builder()
+                    .text(reminder.toString()).build())
+                .build());
+            event.setInputMessages(request);
+        } catch (Exception exception) {
+            log.debug("Automatic memory recall skipped: {}",
+                exception.getMessage());
+        }
+    }
+
+    private int autoSearchMaxResults() {
+        Object reme = agents.getRunningConfig(agentId)
+            .get("reme_light_memory_config");
+        if (!(reme instanceof java.util.Map<?, ?> config)) {
+            return 0;
+        }
+        Object search = config.get("auto_memory_search_config");
+        if (!(search instanceof java.util.Map<?, ?> options)
+            || !Boolean.TRUE.equals(options.get("enabled"))) {
+            return 0;
+        }
+        Object max = options.get("max_results");
+        return max instanceof Number number && number.intValue() > 0
+            ? Math.min(20, number.intValue()) : 2;
     }
 
     // ── Stripping (request copies only; history untouched) ───────────

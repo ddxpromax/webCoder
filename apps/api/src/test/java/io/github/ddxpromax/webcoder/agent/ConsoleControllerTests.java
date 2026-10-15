@@ -109,6 +109,33 @@ class ConsoleControllerTests {
         assertThat(fixture.turns.isActive("chat-1")).isFalse();
     }
 
+    @Test
+    void memoryCommandUsesLocalReplyAndPersistsTheTurn()
+        throws Exception {
+        Fixture fixture = fixture(Flux.empty());
+        when(fixture.memoryCommands.execute(
+            "default", " search mysql"
+        )).thenReturn("One matching memory: MySQL");
+
+        List<String> serialized = fixture.controller.consoleChat(
+            Map.of(
+                "input", "/memory search mysql",
+                "session_id", "memory-session"
+            ),
+            new MockHttpServletRequest()
+        ).collectList().block();
+
+        assertThat(serialized).hasSize(8);
+        assertThat(mapper.readTree(serialized.get(6))
+            .path("output").get(0).path("content")
+            .get(0).path("text").asText())
+            .isEqualTo("One matching memory: MySQL");
+        verify(fixture.memoryCommands).execute(
+            "default", " search mysql"
+        );
+        verify(fixture.chats).saveMessages(anyString(), any());
+    }
+
     private Fixture fixture(Flux<AgentEvent> stream) {
         HarnessAgentFactory factory = mock(HarnessAgentFactory.class);
         HarnessAgent.Builder builder =
@@ -118,6 +145,9 @@ class ConsoleControllerTests {
         TaskTracker tasks = new TaskTracker();
         ActiveTurnRegistry turns = new ActiveTurnRegistry();
         ApprovalStore approvals = new ApprovalStore();
+        MemoryCommandService memoryCommands = mock(
+            MemoryCommandService.class
+        );
         ChatEntity chat = new ChatEntity();
         chat.setId("chat-1");
         chat.setTitle("Stop this");
@@ -136,9 +166,10 @@ class ConsoleControllerTests {
         return new Fixture(
             new ConsoleController(
                 factory, chats, tasks, turns, approvals,
+                memoryCommands,
                 mapper, "0.4.0"
             ),
-            chats, tasks, turns, agent
+            chats, tasks, turns, agent, memoryCommands
         );
     }
 
@@ -147,7 +178,8 @@ class ConsoleControllerTests {
         ChatService chats,
         TaskTracker tasks,
         ActiveTurnRegistry turns,
-        HarnessAgent agent
+        HarnessAgent agent,
+        MemoryCommandService memoryCommands
     ) {
     }
 }

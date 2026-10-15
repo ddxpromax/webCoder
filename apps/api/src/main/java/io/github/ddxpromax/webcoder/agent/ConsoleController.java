@@ -44,6 +44,7 @@ public class ConsoleController {
     private final TaskTracker tasks;
     private final ActiveTurnRegistry turns;
     private final ApprovalStore approvals;
+    private final MemoryCommandService memoryCommands;
     private final ObjectMapper mapper;
     private final String version;
 
@@ -53,6 +54,7 @@ public class ConsoleController {
         TaskTracker tasks,
         ActiveTurnRegistry turns,
         ApprovalStore approvals,
+        MemoryCommandService memoryCommands,
         ObjectMapper mapper,
         @Value("${majo.version:0.4.0}") String version
     ) {
@@ -61,6 +63,7 @@ public class ConsoleController {
         this.tasks = tasks;
         this.turns = turns;
         this.approvals = approvals;
+        this.memoryCommands = memoryCommands;
         this.mapper = mapper;
         this.version = version;
     }
@@ -85,6 +88,13 @@ public class ConsoleController {
             request.getHeader("X-Agent-Id"),
             text(body.get("agent_id"), AgentStore.DEFAULT_AGENT_ID)
         );
+        String trimmedPrompt = prompt.stripLeading();
+        if (trimmedPrompt.equalsIgnoreCase("/memory")
+            || trimmedPrompt.toLowerCase().startsWith("/memory ")) {
+            return consoleMemoryCommand(
+                prompt, sessionId, agentId
+            );
+        }
         String workspaceInput = text(body.get("workspace"), "");
         Path workspace = resolveWorkspace(workspaceInput, agentId);
         ChatEntity chat = chats.getOrCreateBySession(
@@ -226,6 +236,57 @@ public class ConsoleController {
     @GetMapping("/healthz")
     public Map<String, String> healthz() {
         return Map.of("status", "ok");
+    }
+
+    private Flux<String> consoleMemoryCommand(
+        String prompt,
+        String sessionId,
+        String agentId
+    ) {
+        String args = prompt.stripLeading()
+            .substring("/memory".length());
+        String reply;
+        try {
+            reply = memoryCommands.execute(agentId, args);
+        } catch (Exception exception) {
+            reply = "Memory command failed: "
+                + exception.getMessage();
+        }
+        ChatEntity chat = chats.getOrCreateBySession(
+            agentId, sessionId, prompt
+        );
+        String chatId = chat.getId();
+        chats.setStatus(chatId, "running");
+        tasks.setRunning(chatId);
+        QwenEvents events = new QwenEvents(mapper);
+        String responseId = "response_" + UUID.randomUUID()
+            .toString().replace("-", "");
+        String messageId = newMessageId();
+        List<Map<String, Object>> completed = List.of(
+            completedMessage(messageId, "message", reply)
+        );
+        String finalReply = reply;
+        return Flux.just(
+            events.responseCreated(responseId, sessionId),
+            events.responseInProgress(responseId, sessionId),
+            events.textMessageInProgress(messageId),
+            events.contentDelta(messageId, finalReply),
+            events.contentFinal(messageId, finalReply),
+            events.textMessageCompleted(messageId, finalReply),
+            events.responseCompleted(
+                responseId, sessionId, 0, 0, completed
+            ),
+            events.turnUsage(sessionId, 0, 0)
+        ).doFinally(signal -> {
+            try {
+                saveConsoleMessages(chatId, prompt, completed);
+                chats.setStatus(chatId, "idle");
+                tasks.setDone(chatId);
+            } catch (Exception exception) {
+                log.error("Failed to persist memory command chat {}",
+                    chatId, exception);
+            }
+        });
     }
 
     private Path resolveWorkspace(String input, String agentId) {

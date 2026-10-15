@@ -29,6 +29,8 @@ public class HarnessAgentFactory {
     private final CodingModeService codingMode;
     private final MajoWorkingDirectory workingDirectory;
     private final SubagentService subagents;
+    private final MemoryBackendRegistry memoryBackends;
+    private final MemoryWritePipeline memoryWrites;
 
     public HarnessAgentFactory(
         ModelRoutingService routing,
@@ -40,7 +42,9 @@ public class HarnessAgentFactory {
         FileGuardService fileGuard,
         CodingModeService codingMode,
         MajoWorkingDirectory workingDirectory,
-        SubagentService subagents
+        SubagentService subagents,
+        MemoryBackendRegistry memoryBackends,
+        MemoryWritePipeline memoryWrites
     ) {
         this.routing = routing;
         this.providerModels = providerModels;
@@ -52,6 +56,8 @@ public class HarnessAgentFactory {
         this.codingMode = codingMode;
         this.workingDirectory = workingDirectory;
         this.subagents = subagents;
+        this.memoryBackends = memoryBackends;
+        this.memoryWrites = memoryWrites;
     }
 
     public String agentName(String agentId) {
@@ -116,11 +122,15 @@ public class HarnessAgentFactory {
             .hook(new SystemPromptFilesHook(
                 agents.workspaceDirForAgent(agentId)
             ))
+            .hook(new MemoryWriteHook(
+                agentId, memoryWrites
+            ))
             .hook(new CodingModePromptInjector(
                 codingMode, agentId, workspace
             ))
             .hook(new ModelRequestNormalizerHook(
-                agentId, routing, providerModels
+                agentId, routing, providerModels, agents,
+                memoryBackends
             ))
             .hook(new ApprovalHook(
                 agentId, agents, approvals, toolGuard,
@@ -135,6 +145,9 @@ public class HarnessAgentFactory {
         toolkit.registerTool(new GitTools(workspace));
         toolkit.registerTool(new SubagentTools(
             agentId, workspace, subagents
+        ));
+        toolkit.registerTool(new MemorySearchTool(
+            agentId, memoryBackends
         ));
         return toolkit;
     }
