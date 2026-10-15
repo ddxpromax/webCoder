@@ -14,6 +14,8 @@ import {
 } from './api'
 import { workbench } from './state'
 
+const props = defineProps<{ workspace?: string }>()
+
 const route = useRoute()
 const router = useRouter()
 const chatId = computed(() => (typeof route.params.id === 'string' ? route.params.id : ''))
@@ -108,7 +110,7 @@ async function submit() {
     })
     await scrollToBottom()
     await streamChat(
-      { prompt: text, sessionId, agentId: workbench.agentId },
+      { prompt: text, sessionId, agentId: workbench.agentId, workspace: props.workspace },
       {
         onText: (delta) => {
           liveText.value += delta

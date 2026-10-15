@@ -4,6 +4,7 @@ import io.agentscope.core.tool.Toolkit;
 import io.agentscope.extensions.model.openai.OpenAIChatModel;
 import io.agentscope.harness.agent.HarnessAgent;
 import io.github.ddxpromax.webcoder.model.ModelRoutingService;
+import io.github.ddxpromax.webcoder.model.ProviderModelRepository;
 import io.github.ddxpromax.webcoder.settings.SettingsService;
 import java.nio.file.Path;
 import java.nio.file.Files;
@@ -19,28 +20,34 @@ public class HarnessAgentFactory {
     }
 
     private final ModelRoutingService routing;
+    private final ProviderModelRepository providerModels;
     private final SettingsService settings;
     private final AgentStore agents;
     private final ApprovalStore approvals;
     private final ToolGuardService toolGuard;
     private final FileGuardService fileGuard;
+    private final CodingModeService codingMode;
     private final MajoWorkingDirectory workingDirectory;
 
     public HarnessAgentFactory(
         ModelRoutingService routing,
+        ProviderModelRepository providerModels,
         SettingsService settings,
         AgentStore agents,
         ApprovalStore approvals,
         ToolGuardService toolGuard,
         FileGuardService fileGuard,
+        CodingModeService codingMode,
         MajoWorkingDirectory workingDirectory
     ) {
         this.routing = routing;
+        this.providerModels = providerModels;
         this.settings = settings;
         this.agents = agents;
         this.approvals = approvals;
         this.toolGuard = toolGuard;
         this.fileGuard = fileGuard;
+        this.codingMode = codingMode;
         this.workingDirectory = workingDirectory;
     }
 
@@ -103,6 +110,15 @@ public class HarnessAgentFactory {
             .model(model)
             .toolkit(toolkitFor(workspace))
             .workspace(workspace)
+            .hook(new SystemPromptFilesHook(
+                agents.workspaceDirForAgent(agentId)
+            ))
+            .hook(new CodingModePromptInjector(
+                codingMode, agentId, workspace
+            ))
+            .hook(new ModelRequestNormalizerHook(
+                agentId, routing, providerModels
+            ))
             .hook(new ApprovalHook(
                 agentId, agents, approvals, toolGuard,
                 fileGuard, workspace

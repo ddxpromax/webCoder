@@ -114,6 +114,41 @@ public class AgentStore {
         return profile.isEmpty() ? null : profile;
     }
 
+    public synchronized Map<String, Object> getRunningConfig(
+        String agentId
+    ) {
+        Map<String, Object> profile = getProfile(agentId);
+        if (profile == null) {
+            throw new IllegalArgumentException(
+                "Agent '" + agentId + "' not found"
+            );
+        }
+        return asMap(profile.get("running"));
+    }
+
+    public synchronized String getApprovalLevel(String agentId) {
+        Map<String, Object> profile = getProfile(agentId);
+        if (profile == null) {
+            throw new IllegalArgumentException(
+                "Agent '" + agentId + "' not found"
+            );
+        }
+        return text(profile.get("approval_level"), "AUTO");
+    }
+
+    public synchronized void saveRunningConfig(
+        String agentId,
+        Map<String, Object> running,
+        String approvalLevel
+    ) {
+        Map<String, Object> updates = new LinkedHashMap<>();
+        updates.put("running", running);
+        if (approvalLevel != null) {
+            updates.put("approval_level", approvalLevel);
+        }
+        updateAgent(agentId, updates);
+    }
+
     public Path workspaceDirForAgent(String agentId) {
         if (agentId == null || agentId.isBlank()
             || DEFAULT_AGENT_ID.equals(agentId)) {

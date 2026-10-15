@@ -22,13 +22,14 @@ const saving = ref(false)
 const error = ref('')
 const projectName = ref('')
 const projectPickerOpen = ref(false)
+const codingModeEnabled = ref(false)
 const availableProjects = ref<Array<{ path: string; name: string }>>([])
 
 async function refresh() {
   loading.value = true
   error.value = ''
   try {
-    const [current, entries, projects] = await Promise.all([
+    const [current, entries, projects, mode] = await Promise.all([
       getCodingProject(workbench.agentId),
       listCodeFiles(workbench.agentId),
       apiRequest<Array<{ path: string; name: string }>>(
@@ -36,14 +37,29 @@ async function refresh() {
         {},
         workbench.agentId,
       ),
+      apiRequest<{ enabled: boolean }>('/coding-mode', {}, workbench.agentId),
     ])
     project.value = current
     files.value = entries.sort((left, right) => left.path.localeCompare(right.path))
     availableProjects.value = projects
+    codingModeEnabled.value = mode.enabled
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : 'Could not load project.'
   } finally {
     loading.value = false
+  }
+}
+
+async function toggleCodingMode() {
+  try {
+    const result = await apiRequest<{ enabled: boolean }>(
+      '/coding-mode',
+      { method: 'POST', body: JSON.stringify({ enabled: !codingModeEnabled.value }) },
+      workbench.agentId,
+    )
+    codingModeEnabled.value = result.enabled
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : 'Could not change Coding Mode.'
   }
 }
 
@@ -124,6 +140,9 @@ onMounted(() => void refresh())
         <span>EXPLORER</span>
         <button class="icon-button small" title="Refresh files" @click="refresh">↻</button>
       </div>
+      <button class="project-selector" @click="toggleCodingMode">
+        Coding Mode: {{ codingModeEnabled ? 'On' : 'Off' }}
+      </button>
       <button class="project-selector" @click="projectPickerOpen = !projectPickerOpen">
         <span>▾ {{ project?.name || 'Workspace' }}</span>
       </button>
@@ -186,6 +205,6 @@ onMounted(() => void refresh())
       <p v-if="error" class="inline-error" role="alert">{{ error }}</p>
     </section>
 
-    <aside class="coding-chat"><ChatPage /></aside>
+    <aside class="coding-chat"><ChatPage :workspace="project?.path" /></aside>
   </div>
 </template>
