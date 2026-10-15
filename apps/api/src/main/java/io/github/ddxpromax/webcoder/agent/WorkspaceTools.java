@@ -18,9 +18,15 @@ import java.util.regex.Pattern;
 /** File and search tools scoped to one agent turn's workspace. */
 public class WorkspaceTools {
     private final Path root;
+    private final WorkspaceMutationGate mutationGate;
 
     public WorkspaceTools(Path root) {
+        this(root, LocalWorkspaceMutationGate.shared());
+    }
+
+    public WorkspaceTools(Path root, WorkspaceMutationGate mutationGate) {
         this.root = root.toAbsolutePath().normalize();
+        this.mutationGate = mutationGate;
     }
 
     @Tool(
@@ -74,12 +80,14 @@ public class WorkspaceTools {
         @ToolParam(name = "content", description = "File content")
         String content
     ) throws IOException {
-        Path target = resolve(path);
-        Files.createDirectories(target.getParent());
-        boolean existed = Files.exists(target);
-        Files.writeString(target, content == null ? "" : content);
-        return (existed ? "[updated] " : "[created] ")
-            + path + " (" + Files.size(target) + " bytes)";
+        try (var ignored = mutationGate.acquire(root)) {
+            Path target = resolve(path);
+            Files.createDirectories(target.getParent());
+            boolean existed = Files.exists(target);
+            Files.writeString(target, content == null ? "" : content);
+            return (existed ? "[updated] " : "[created] ")
+                + path + " (" + Files.size(target) + " bytes)";
+        }
     }
 
     @Tool(
@@ -94,33 +102,35 @@ public class WorkspaceTools {
         @ToolParam(name = "newString", description = "Replacement text")
         String newString
     ) throws IOException {
-        Path target = resolve(path);
-        if (!Files.exists(target)) {
-            return "File not found: " + path;
-        }
         if (oldString == null || oldString.isEmpty()) {
             return "oldString must not be empty";
         }
-        String content = Files.readString(target);
-        int count = 0;
-        int index = 0;
-        while ((index = content.indexOf(oldString, index)) != -1) {
-            count++;
-            index += oldString.length();
+        try (var ignored = mutationGate.acquire(root)) {
+            Path target = resolve(path);
+            if (!Files.exists(target)) {
+                return "File not found: " + path;
+            }
+            String content = Files.readString(target);
+            int count = 0;
+            int index = 0;
+            while ((index = content.indexOf(oldString, index)) != -1) {
+                count++;
+                index += oldString.length();
+            }
+            if (count == 0) {
+                return "oldString was not found";
+            }
+            if (count > 1) {
+                return "oldString matched " + count
+                    + " locations; it must be unique";
+            }
+            Files.writeString(target,
+                content.replace(oldString,
+                    newString == null ? "" : newString
+                )
+            );
+            return "[edited] " + path;
         }
-        if (count == 0) {
-            return "oldString was not found";
-        }
-        if (count > 1) {
-            return "oldString matched " + count
-                + " locations; it must be unique";
-        }
-        Files.writeString(target,
-            content.replace(oldString,
-                newString == null ? "" : newString
-            )
-        );
-        return "[edited] " + path;
     }
 
     @Tool(
@@ -133,16 +143,18 @@ public class WorkspaceTools {
         @ToolParam(name = "content", description = "Content to append")
         String content
     ) throws IOException {
-        Path target = resolve(path);
-        Files.createDirectories(target.getParent());
-        boolean existed = Files.exists(target);
-        Files.writeString(target,
-            content == null ? "" : content,
-            StandardOpenOption.CREATE,
-            StandardOpenOption.APPEND
-        );
-        return (existed ? "[appended] " : "[created] ")
-            + path + " (" + Files.size(target) + " bytes)";
+        try (var ignored = mutationGate.acquire(root)) {
+            Path target = resolve(path);
+            Files.createDirectories(target.getParent());
+            boolean existed = Files.exists(target);
+            Files.writeString(target,
+                content == null ? "" : content,
+                StandardOpenOption.CREATE,
+                StandardOpenOption.APPEND
+            );
+            return (existed ? "[appended] " : "[created] ")
+                + path + " (" + Files.size(target) + " bytes)";
+        }
     }
 
     @Tool(

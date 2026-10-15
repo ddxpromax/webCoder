@@ -12,9 +12,15 @@ import org.eclipse.jgit.storage.file.FileRepositoryBuilder;
 
 public class GitTools {
     private final Path workspace;
+    private final WorkspaceMutationGate mutationGate;
 
     public GitTools(Path workspace) {
+        this(workspace, LocalWorkspaceMutationGate.shared());
+    }
+
+    public GitTools(Path workspace, WorkspaceMutationGate mutationGate) {
         this.workspace = workspace.toAbsolutePath().normalize();
+        this.mutationGate = mutationGate;
     }
 
     @Tool(
@@ -85,13 +91,13 @@ public class GitTools {
             required = false
         ) String name
     ) throws Exception {
+        if (name != null && !name.isBlank()) {
+            try (var ignored = mutationGate.acquire(workspace)) {
+                return createBranch(name);
+            }
+        }
         try (Repository repository = repo();
              Git git = new Git(repository)) {
-            if (name != null && !name.isBlank()) {
-                git.checkout().setCreateBranch(true)
-                    .setName(name).call();
-                return "Created and switched to: " + name;
-            }
             StringBuilder result = new StringBuilder();
             String current = repository.getBranch();
             git.branchList().call().forEach(ref -> {
@@ -104,12 +110,22 @@ public class GitTools {
         }
     }
 
+    private String createBranch(String name) throws Exception {
+        try (Repository repository = repo();
+             Git git = new Git(repository)) {
+            git.checkout().setCreateBranch(true)
+                .setName(name).call();
+            return "Created and switched to: " + name;
+        }
+    }
+
     @Tool(name = "git_commit", description = "Commit staged changes")
     public String commit(
         @ToolParam(name = "message", description = "Commit message")
         String message
     ) throws Exception {
-        try (Repository repository = repo();
+        try (var ignored = mutationGate.acquire(workspace);
+             Repository repository = repo();
              Git git = new Git(repository)) {
             var revision = git.commit().setMessage(message).call();
             return "Committed: " + revision.getName();
@@ -123,7 +139,8 @@ public class GitTools {
             description = "Repository-relative file pattern"
         ) String filePattern
     ) throws Exception {
-        try (Repository repository = repo();
+        try (var ignored = mutationGate.acquire(workspace);
+             Repository repository = repo();
              Git git = new Git(repository)) {
             git.add().addFilepattern(filePattern).call();
             return "Staged: " + filePattern;

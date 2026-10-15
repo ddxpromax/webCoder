@@ -18,6 +18,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import org.springframework.core.io.ByteArrayResource;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.Resource;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -56,9 +57,19 @@ public class WorkspaceFilesController {
     );
 
     private final AgentStore agents;
+    private final WorkspaceMutationGate mutationGate;
 
     public WorkspaceFilesController(AgentStore agents) {
+        this(agents, LocalWorkspaceMutationGate.shared());
+    }
+
+    @Autowired
+    public WorkspaceFilesController(
+        AgentStore agents,
+        WorkspaceMutationGate mutationGate
+    ) {
         this.agents = agents;
+        this.mutationGate = mutationGate;
     }
 
     @GetMapping("/workspace/code-files")
@@ -390,7 +401,7 @@ public class WorkspaceFilesController {
                 "error", "Path traversal"
             ));
         }
-        try {
+        try (var lease = mutationGate.acquire(root)) {
             Files.createDirectories(target.getParent());
             Files.writeString(target,
                 body.getOrDefault("content", ""));
@@ -512,7 +523,7 @@ public class WorkspaceFilesController {
                 "error", "Invalid memory path"
             ));
         }
-        try {
+        try (var lease = mutationGate.acquire(root)) {
             Files.createDirectories(target.getParent());
             Files.writeString(target,
                 body.getOrDefault("content", ""));
@@ -575,7 +586,7 @@ public class WorkspaceFilesController {
                 "error", "Invalid path"
             ));
         }
-        try {
+        try (var lease = mutationGate.acquire(root)) {
             Files.createDirectories(root);
             Files.writeString(target,
                 body.getOrDefault("content", ""));

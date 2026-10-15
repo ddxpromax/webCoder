@@ -18,6 +18,7 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
 import org.springframework.core.io.ByteArrayResource;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.Resource;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -47,9 +48,19 @@ public class WorkspaceTransferController {
     private static final int MAX_ZIP_ENTRIES = 20_000;
 
     private final AgentStore agents;
+    private final WorkspaceMutationGate mutationGate;
 
     public WorkspaceTransferController(AgentStore agents) {
+        this(agents, LocalWorkspaceMutationGate.shared());
+    }
+
+    @Autowired
+    public WorkspaceTransferController(
+        AgentStore agents,
+        WorkspaceMutationGate mutationGate
+    ) {
         this.agents = agents;
+        this.mutationGate = mutationGate;
     }
 
     @GetMapping("/workspace/download")
@@ -83,11 +94,9 @@ public class WorkspaceTransferController {
                 "detail", "Uploaded file is not a valid zip archive"
             ));
         }
-        try {
-            extractAndMergeZip(
-                file,
-                agents.workspaceDirForAgent(agentId(request))
-            );
+        Path workspace = agents.workspaceDirForAgent(agentId(request));
+        try (var lease = mutationGate.acquire(workspace)) {
+            extractAndMergeZip(file, workspace);
         } catch (IllegalArgumentException exception) {
             return ResponseEntity.badRequest().body(Map.of(
                 "detail", exception.getMessage()
@@ -124,6 +133,17 @@ public class WorkspaceTransferController {
             ));
         }
         Path workspace = agents.workspaceDirForAgent(agentId(request));
+        try (var lease = mutationGate.acquire(workspace)) {
+            return uploadFilesLocked(files, path, conflict, workspace);
+        }
+    }
+
+    private ResponseEntity<Map<String, Object>> uploadFilesLocked(
+        MultipartFile[] files,
+        String path,
+        String conflict,
+        Path workspace
+    ) {
         Path directory;
         try {
             directory = resolveUploadDirectory(workspace, path);

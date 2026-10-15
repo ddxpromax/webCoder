@@ -17,9 +17,15 @@ public class ShellTool {
     private static final int MAX_OUTPUT_CHARS = 50_000;
 
     private final Path workspace;
+    private final WorkspaceMutationGate mutationGate;
 
     public ShellTool(Path workspace) {
+        this(workspace, LocalWorkspaceMutationGate.shared());
+    }
+
+    public ShellTool(Path workspace, WorkspaceMutationGate mutationGate) {
         this.workspace = workspace.toAbsolutePath().normalize();
+        this.mutationGate = mutationGate;
     }
 
     @Tool(
@@ -52,7 +58,7 @@ public class ShellTool {
             return "[error] workspace is not a directory";
         }
         Process process = null;
-        try {
+        try (var lease = mutationGate.acquire(workspace)) {
             ProcessBuilder builder = windows
                 ? new ProcessBuilder("cmd.exe", "/c", effective)
                 : new ProcessBuilder("sh", "-c", effective);
