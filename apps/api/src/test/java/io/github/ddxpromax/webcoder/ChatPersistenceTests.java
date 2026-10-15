@@ -1005,4 +1005,111 @@ class ChatPersistenceTests {
             .andExpect(jsonPath("$.models.length()").value(0))
             .andExpect(jsonPath("$.added_count").value(0));
     }
+
+    @Test
+    void majoSettingsPersistOnlySuppliedFields() throws Exception {
+        String originalBaseUrl = jdbcTemplate.queryForObject(
+            "SELECT base_url FROM settings WHERE id = 1",
+            String.class
+        );
+        String originalWorkspace = jdbcTemplate.queryForObject(
+            "SELECT workspace FROM settings WHERE id = 1",
+            String.class
+        );
+        String originalModel = jdbcTemplate.queryForObject(
+            "SELECT model_name FROM settings WHERE id = 1",
+            String.class
+        );
+        try {
+            mockMvc.perform(post("/api/settings")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("""
+                        {
+                          "baseUrl":"https://example.test/v1",
+                          "workspace":"/tmp/majo-workspace"
+                        }
+                        """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.baseUrl")
+                    .value("https://example.test/v1"))
+                .andExpect(jsonPath("$.workspace")
+                    .value("/tmp/majo-workspace"))
+                .andExpect(jsonPath("$.modelName")
+                    .value(originalModel));
+
+            assertThat(jdbcTemplate.queryForObject(
+                "SELECT workspace FROM settings WHERE id = 1",
+                String.class
+            )).isEqualTo("/tmp/majo-workspace");
+
+            mockMvc.perform(get("/api/settings"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.workspace")
+                    .value("/tmp/majo-workspace"));
+        } finally {
+            jdbcTemplate.update(
+                """
+                UPDATE settings
+                SET base_url = ?, workspace = ?
+                WHERE id = 1
+                """,
+                originalBaseUrl,
+                originalWorkspace
+            );
+        }
+    }
+
+    @Test
+    void majoThemeValidatesNormalizesAndResets() throws Exception {
+        String originalAccent = jdbcTemplate.queryForObject(
+            "SELECT theme_accent FROM settings WHERE id = 1",
+            String.class
+        );
+        String originalDark = jdbcTemplate.queryForObject(
+            "SELECT theme_accent_dark FROM settings WHERE id = 1",
+            String.class
+        );
+        try {
+            mockMvc.perform(put("/api/config/theme")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("""
+                        {
+                          "accent":" #AABBCC ",
+                          "accent_dark":"#102030"
+                        }
+                        """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.accent")
+                    .value("#aabbcc"))
+                .andExpect(jsonPath("$.accent_dark")
+                    .value("#102030"));
+
+            mockMvc.perform(put("/api/config/theme")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"accent\":\"red\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail")
+                    .value("accent must be #rrggbb, got: red"));
+
+            mockMvc.perform(delete("/api/config/theme"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.accent").value(""))
+                .andExpect(jsonPath("$.accent_dark").value(""));
+
+            assertThat(jdbcTemplate.queryForObject(
+                "SELECT theme_accent FROM settings WHERE id = 1",
+                String.class
+            )).isNull();
+        } finally {
+            jdbcTemplate.update(
+                """
+                UPDATE settings
+                SET theme_accent = ?, theme_accent_dark = ?
+                WHERE id = 1
+                """,
+                originalAccent,
+                originalDark
+            );
+        }
+    }
 }
