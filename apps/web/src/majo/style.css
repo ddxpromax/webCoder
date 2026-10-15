@@ -823,6 +823,43 @@ a {
 .narrow-card {
   max-width: 540px;
 }
+.environment-card {
+  max-width: 1050px;
+}
+.environment-toolbar,
+.environment-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 12px 0;
+}
+.environment-row {
+  display: grid;
+  grid-template-columns: 24px minmax(180px, 1fr) minmax(180px, 1fr) auto auto auto;
+  align-items: start;
+  gap: 10px;
+  padding: 12px 0;
+  border-top: 1px solid #353535;
+}
+.environment-row label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  color: #aaa;
+  font-size: 12px;
+}
+.environment-row input:not([type='checkbox']) {
+  width: 100%;
+}
+@media (max-width: 760px) {
+  .environment-row {
+    grid-template-columns: 24px minmax(0, 1fr) auto auto auto;
+  }
+  .environment-row label:nth-child(3) {
+    grid-column: 2 / -1;
+  }
+}
 .login-screen {
   min-height: 100dvh;
   display: grid;

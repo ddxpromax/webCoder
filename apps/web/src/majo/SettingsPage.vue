@@ -96,6 +96,11 @@ onMounted(() => void refresh())
       </form>
     </div>
     <div class="settings-card narrow-card">
+      <h2>Environment variables</h2>
+      <p>Set named values for workspace integrations.</p>
+      <RouterLink to="/settings/environments">Manage variables</RouterLink>
+    </div>
+    <div class="settings-card narrow-card">
       <h2>Account</h2>
       <button @click="signOut">Sign out</button>
     </div>

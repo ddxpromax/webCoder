@@ -101,6 +101,35 @@ class ChatPersistenceTests {
     private TokenUsageService tokenUsage;
 
     @Test
+    void environmentVariablesReplaceAndDeleteAsOneCollection()
+        throws Exception {
+        mockMvc.perform(put("/api/envs")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"SECOND\":\"two\",\"FIRST\":\"one\"}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$[0].key").value("FIRST"))
+            .andExpect(jsonPath("$[1].value").value("two"));
+        mockMvc.perform(put("/api/envs")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"THIRD\":\"three\"}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$[0].key").value("THIRD"))
+            .andExpect(jsonPath("$[1]").doesNotExist());
+        String oversized = new com.fasterxml.jackson.databind.ObjectMapper()
+            .writeValueAsString(Map.of("INVALID", "x".repeat(4097)));
+        mockMvc.perform(put("/api/envs")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(oversized))
+            .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/envs"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$[0].key").value("THIRD"));
+        mockMvc.perform(delete("/api/envs/THIRD"))
+            .andExpect(status().isOk())
+            .andExpect(content().json("[]"));
+    }
+
+    @Test
     void agentSkillEndpointsPersistWorkspaceManifest() throws Exception {
         String skillName = "review_" + java.util.UUID.randomUUID()
             .toString().replace("-", "");
