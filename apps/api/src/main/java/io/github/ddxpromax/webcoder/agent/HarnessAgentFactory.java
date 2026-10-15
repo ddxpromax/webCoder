@@ -19,17 +19,20 @@ public class HarnessAgentFactory {
     private final ModelRoutingService routing;
     private final SettingsService settings;
     private final AgentStore agents;
+    private final ApprovalStore approvals;
     private final MajoWorkingDirectory workingDirectory;
 
     public HarnessAgentFactory(
         ModelRoutingService routing,
         SettingsService settings,
         AgentStore agents,
+        ApprovalStore approvals,
         MajoWorkingDirectory workingDirectory
     ) {
         this.routing = routing;
         this.settings = settings;
         this.agents = agents;
+        this.approvals = approvals;
         this.workingDirectory = workingDirectory;
     }
 
@@ -83,7 +86,8 @@ public class HarnessAgentFactory {
             .sysPrompt(ProtectedPrompt.withContract(systemPrompt))
             .model(model)
             .toolkit(toolkitFor(workspace))
-            .workspace(workspace);
+            .workspace(workspace)
+            .hook(new ApprovalHook(agentId, agents, approvals));
     }
 
     Toolkit toolkitFor(Path workspace) {

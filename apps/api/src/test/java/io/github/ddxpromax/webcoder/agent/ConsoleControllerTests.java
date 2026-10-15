@@ -117,6 +117,7 @@ class ConsoleControllerTests {
         ChatService chats = mock(ChatService.class);
         TaskTracker tasks = new TaskTracker();
         ActiveTurnRegistry turns = new ActiveTurnRegistry();
+        ApprovalStore approvals = new ApprovalStore();
         ChatEntity chat = new ChatEntity();
         chat.setId("chat-1");
         chat.setTitle("Stop this");
@@ -134,7 +135,8 @@ class ConsoleControllerTests {
         )).thenReturn(stream);
         return new Fixture(
             new ConsoleController(
-                factory, chats, tasks, turns, mapper, "0.4.0"
+                factory, chats, tasks, turns, approvals,
+                mapper, "0.4.0"
             ),
             chats, tasks, turns, agent
         );

@@ -43,6 +43,7 @@ public class ConsoleController {
     private final ChatService chats;
     private final TaskTracker tasks;
     private final ActiveTurnRegistry turns;
+    private final ApprovalStore approvals;
     private final ObjectMapper mapper;
     private final String version;
 
@@ -51,6 +52,7 @@ public class ConsoleController {
         ChatService chats,
         TaskTracker tasks,
         ActiveTurnRegistry turns,
+        ApprovalStore approvals,
         ObjectMapper mapper,
         @Value("${majo.version:0.4.0}") String version
     ) {
@@ -58,6 +60,7 @@ public class ConsoleController {
         this.chats = chats;
         this.tasks = tasks;
         this.turns = turns;
+        this.approvals = approvals;
         this.mapper = mapper;
         this.version = version;
     }
@@ -165,6 +168,7 @@ public class ConsoleController {
             ));
         }).doFinally(signal -> {
             try {
+                approvals.cancelSession(sessionId);
                 saveConsoleMessages(
                     chatId, prompt, state.completedMessages
                 );
@@ -186,6 +190,12 @@ public class ConsoleController {
             required = false
         ) String chatId
     ) {
+        if (chatId != null && !chatId.isBlank()) {
+            ChatEntity chat = chats.getChat(chatId);
+            if (chat != null && chat.getSessionId() != null) {
+                approvals.cancelSession(chat.getSessionId());
+            }
+        }
         boolean stopped = turns.stop(chatId);
         Map<String, Object> response = new LinkedHashMap<>();
         response.put("status", "ok");
@@ -196,6 +206,16 @@ public class ConsoleController {
     @GetMapping("/loops/status")
     public Map<String, Object> loopStatus() {
         return tasks.getGlobalStatus();
+    }
+
+    @GetMapping("/console/push-messages")
+    public Map<String, Object> pushMessages() {
+        List<Map<String, Object>> pending = approvals.listPending()
+            .stream().map(ApprovalController::toResponse).toList();
+        return Map.of(
+            "messages", List.of(),
+            "pending_approvals", pending
+        );
     }
 
     @GetMapping("/version")
