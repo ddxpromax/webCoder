@@ -19,20 +19,17 @@ public class HarnessAgentFactory {
     private final ModelRoutingService routing;
     private final SettingsService settings;
     private final AgentStore agents;
-    private final Toolkit toolkit;
     private final MajoWorkingDirectory workingDirectory;
 
     public HarnessAgentFactory(
         ModelRoutingService routing,
         SettingsService settings,
         AgentStore agents,
-        Toolkit toolkit,
         MajoWorkingDirectory workingDirectory
     ) {
         this.routing = routing;
         this.settings = settings;
         this.agents = agents;
-        this.toolkit = toolkit;
         this.workingDirectory = workingDirectory;
     }
 
@@ -85,7 +82,13 @@ public class HarnessAgentFactory {
             .agentId(agentId)
             .sysPrompt(ProtectedPrompt.withContract(systemPrompt))
             .model(model)
-            .toolkit(toolkit)
+            .toolkit(toolkitFor(workspace))
             .workspace(workspace);
+    }
+
+    Toolkit toolkitFor(Path workspace) {
+        Toolkit toolkit = new Toolkit();
+        toolkit.registerTool(new WorkspaceTools(workspace));
+        return toolkit;
     }
 }
