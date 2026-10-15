@@ -408,4 +408,80 @@ class ChatPersistenceTests {
             );
         }
     }
+
+    @Test
+    void providerListMatchesMajoCatalogShape() throws Exception {
+        String name = "custom-" + java.util.UUID.randomUUID();
+
+        jdbcTemplate.update(
+            """
+            INSERT INTO model_configs (
+                name, api_key, base_url, model_name
+            ) VALUES (?, ?, ?, ?)
+            """,
+            name,
+            "sk-test-secret",
+            "https://example.test/v1",
+            "custom-model"
+        );
+
+        Long customId = jdbcTemplate.queryForObject(
+            "SELECT id FROM model_configs WHERE name = ?",
+            Long.class,
+            name
+        );
+
+        try {
+            String response = mockMvc.perform(get("/api/models"))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+            com.fasterxml.jackson.databind.JsonNode catalog =
+                new com.fasterxml.jackson.databind.ObjectMapper()
+                    .readTree(response);
+
+            assertThat(catalog.size()).isEqualTo(34);
+
+            com.fasterxml.jackson.databind.JsonNode openai = null;
+            com.fasterxml.jackson.databind.JsonNode custom = null;
+
+            for (com.fasterxml.jackson.databind.JsonNode provider
+                : catalog) {
+                if ("openai".equals(provider.path("id").asText())) {
+                    openai = provider;
+                }
+                if (customId.toString().equals(
+                    provider.path("id").asText()
+                )) {
+                    custom = provider;
+                }
+            }
+
+            assertThat(openai).isNotNull();
+            assertThat(openai.path("models").size()).isEqualTo(11);
+            assertThat(openai.path("extra_models").isArray()).isTrue();
+
+            assertThat(custom).isNotNull();
+            assertThat(custom.path("name").asText()).isEqualTo(name);
+            assertThat(custom.path("api_key").asText())
+                .isEqualTo("****");
+            assertThat(custom.path("models").get(0)
+                .path("id").asText())
+                .isEqualTo("custom-model");
+            assertThat(custom.path("models").get(0)
+                .path("max_input_length").asInt())
+                .isEqualTo(128000);
+
+            assertThat(catalog.get(catalog.size() - 1)
+                .path("id").asText())
+                .isEqualTo(customId.toString());
+        } finally {
+            jdbcTemplate.update(
+                "DELETE FROM model_configs WHERE id = ?",
+                customId
+            );
+        }
+    }
 }
