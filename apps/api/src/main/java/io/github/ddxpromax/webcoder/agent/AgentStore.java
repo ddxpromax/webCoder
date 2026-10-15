@@ -67,6 +67,19 @@ public class AgentStore {
         return config;
     }
 
+    public synchronized void updateRoot(
+        String key,
+        Object value
+    ) {
+        Map<String, Object> config = loadConfig();
+        if (value == null) {
+            config.remove(key);
+        } else {
+            config.put(key, value);
+        }
+        files.writeAtomic(agentsFile, config);
+    }
+
     public synchronized List<Map<String, Object>> listProfiles() {
         Map<String, Object> config = loadConfig();
         Map<String, Object> profiles = profiles(config);

@@ -152,6 +152,11 @@ public class HarnessAgentFactory {
         toolkit.registerTool(new MemorySearchTool(
             agentId, memoryBackends
         ));
+        toolkit.registerTool(new TimeTools(agents));
+        toolkit.registerTool(new WebTools());
+        toolkit.registerTool(new SendFileToUserTool(
+            workspace, workingDirectory
+        ));
         return toolkit;
     }
 }
