@@ -5,6 +5,9 @@ import java.util.Optional;
 import java.util.List;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
+import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
+import org.springframework.jdbc.support.GeneratedKeyHolder;
+import org.springframework.jdbc.support.KeyHolder;
 
 @Repository
 public class ModelConfigRepository {
@@ -60,4 +63,52 @@ public class ModelConfigRepository {
         String baseUrl,
         String modelName
     ) {}
+
+    public CustomProviderRow create(
+        String name,
+        String apiKey,
+        String baseUrl,
+        String modelName
+    ) {
+        KeyHolder keys = new GeneratedKeyHolder();
+
+        jdbc.update(
+            """
+            INSERT INTO model_configs (
+                name, api_key, base_url, model_name
+            ) VALUES (
+                :name, :apiKey, :baseUrl, :modelName
+            )
+            """,
+            new MapSqlParameterSource()
+                .addValue("name", name)
+                .addValue("apiKey", apiKey)
+                .addValue("baseUrl", baseUrl)
+                .addValue("modelName", modelName),
+            keys,
+            new String[] {"id"}
+        );
+
+        Number id = keys.getKey();
+        if (id == null) {
+            throw new IllegalStateException(
+                "Custom provider insert returned no id"
+            );
+        }
+
+        return new CustomProviderRow(
+            id.longValue(),
+            name,
+            apiKey,
+            baseUrl,
+            modelName
+        );
+    }
+
+    public void deleteById(long id) {
+        jdbc.update(
+            "DELETE FROM model_configs WHERE id = :id",
+            Map.of("id", id)
+        );
+    }
 }

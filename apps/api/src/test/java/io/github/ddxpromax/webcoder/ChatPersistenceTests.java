@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 
 import io.github.ddxpromax.webcoder.chat.ChatEntity;
 import io.github.ddxpromax.webcoder.chat.ChatService;
@@ -481,6 +482,150 @@ class ChatPersistenceTests {
             jdbcTemplate.update(
                 "DELETE FROM model_configs WHERE id = ?",
                 customId
+            );
+        }
+    }
+
+    @Test
+    void builtInProviderConfigUpdatesOnlySuppliedFields()
+        throws Exception {
+        String originalApiKey = jdbcTemplate.queryForObject(
+            "SELECT api_key FROM providers WHERE id = ?",
+            String.class,
+            "openai"
+        );
+        String originalBaseUrl = jdbcTemplate.queryForObject(
+            "SELECT base_url FROM providers WHERE id = ?",
+            String.class,
+            "openai"
+        );
+        String originalChatModel = jdbcTemplate.queryForObject(
+            "SELECT chat_model FROM providers WHERE id = ?",
+            String.class,
+            "openai"
+        );
+
+        try {
+            mockMvc.perform(put("/api/models/openai/config")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("""
+                        {
+                        "api_key": "sk-test-config",
+                        "base_url": "https://example.test/v1"
+                        }
+                        """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value("openai"))
+                .andExpect(jsonPath("$.api_key")
+                    .value("sk-test-config"))
+                .andExpect(jsonPath("$.base_url")
+                    .value("https://example.test/v1"))
+                .andExpect(jsonPath("$.chat_model")
+                    .value(originalChatModel));
+
+            assertThat(jdbcTemplate.queryForObject(
+                "SELECT api_key FROM providers WHERE id = ?",
+                String.class,
+                "openai"
+            )).isEqualTo("sk-test-config");
+
+            mockMvc.perform(put("/api/models/openai/config")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("""
+                        {"api_key": ""}
+                        """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.api_key").value(""))
+                .andExpect(jsonPath("$.base_url")
+                    .value("https://example.test/v1"));
+        } finally {
+            jdbcTemplate.update(
+                """
+                UPDATE providers
+                SET api_key = ?,
+                    base_url = ?,
+                    chat_model = ?
+                WHERE id = ?
+                """,
+                originalApiKey,
+                originalBaseUrl,
+                originalChatModel,
+                "openai"
+            );
+        }
+
+        mockMvc.perform(put("/api/models/not-a-provider/config")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"api_key": "x"}
+                    """))
+            .andExpect(status().isNotFound())
+            .andExpect(jsonPath("$.error").value("not found"));
+    }
+
+    @Test
+    void customProviderCreationAndDeletionMatchMajo()
+        throws Exception {
+        String name = "custom-" + java.util.UUID.randomUUID();
+
+        try {
+            String response = mockMvc.perform(
+                    post("/api/models/custom-providers")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                            {
+                            "id": "client-supplied-id",
+                            "name": "%s",
+                            "default_base_url":
+                                "https://example.test/v1",
+                            "api_key": "sk-test-secret",
+                            "chat_model": "custom-model"
+                            }
+                            """.formatted(name)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.name").value(name))
+                .andExpect(jsonPath("$.base_url")
+                    .value("https://example.test/v1"))
+                .andExpect(jsonPath("$.api_key")
+                    .value("****"))
+                .andExpect(jsonPath("$.models[0].id")
+                    .value("custom-model"))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+            com.fasterxml.jackson.databind.JsonNode created =
+                new com.fasterxml.jackson.databind.ObjectMapper()
+                    .readTree(response);
+
+            String providerId = created.path("id").asText();
+            assertThat(providerId).matches("[0-9]+");
+            assertThat(providerId).isNotEqualTo(
+                "client-supplied-id"
+            );
+
+            assertThat(jdbcTemplate.queryForObject(
+                "SELECT api_key FROM model_configs WHERE id = ?",
+                String.class,
+                Long.parseLong(providerId)
+            )).isEqualTo("sk-test-secret");
+
+            mockMvc.perform(delete(
+                    "/api/models/custom-providers/{id}",
+                    providerId
+                ))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$").isArray());
+
+            assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM model_configs WHERE id = ?",
+                Long.class,
+                Long.parseLong(providerId)
+            )).isZero();
+        } finally {
+            jdbcTemplate.update(
+                "DELETE FROM model_configs WHERE name = ?",
+                name
             );
         }
     }

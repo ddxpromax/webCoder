@@ -17,6 +17,9 @@ import io.github.ddxpromax.webcoder.dto.ModelInfoDto;
 import io.github.ddxpromax.webcoder.dto.ProviderInfoDto;
 import java.util.ArrayList;
 import java.util.List;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 
 @RestController
 @RequestMapping("/api")
@@ -81,6 +84,105 @@ public class ModelProviderController {
         }
 
         return result;
+    }
+
+    @PutMapping("/models/{provider_id}/config")
+    public ResponseEntity<?> configureProvider(
+        @PathVariable("provider_id") String providerId,
+        @RequestBody Map<String, Object> body
+    ) {
+        if (providerRepo.findFullById(providerId).isEmpty()) {
+            return ResponseEntity.status(404).body(
+                Map.of("error", "not found")
+            );
+        }
+
+        providerRepo.updateConfig(
+            providerId,
+            new ProviderRepository.ProviderConfigUpdate(
+                body.containsKey("api_key"),
+                Objects.toString(body.get("api_key"), ""),
+                body.containsKey("base_url"),
+                Objects.toString(body.get("base_url"), ""),
+                body.containsKey("chat_model"),
+                Objects.toString(
+                    body.get("chat_model"),
+                    "OpenAIChatModel"
+                )
+            )
+        );
+
+        return ResponseEntity.ok(
+            toProviderDto(
+                providerRepo.findFullById(providerId).orElseThrow()
+            )
+        );
+    }
+
+    @PostMapping("/models/custom-providers")
+    public ProviderInfoDto createProvider(
+        @RequestBody Map<String, String> body
+    ) {
+        ModelConfigRepository.CustomProviderRow created =
+            modelConfigRepo.create(
+                body.getOrDefault("name", "Custom"),
+                firstNonBlank(body, "api_key", "apiKey", ""),
+                firstNonBlank(
+                    body,
+                    "default_base_url",
+                    "baseUrl",
+                    "https://api.openai.com/v1"
+                ),
+                firstNonBlank(
+                    body,
+                    "chat_model",
+                    "modelName",
+                    "gpt-4o-mini"
+                )
+            );
+
+        return toCustomProviderDto(created);
+    }
+
+    @DeleteMapping("/models/custom-providers/{provider_id}")
+    public List<ProviderInfoDto> deleteProvider(
+        @PathVariable("provider_id") String providerId
+    ) {
+        try {
+            modelConfigRepo.deleteById(
+                Long.parseLong(providerId)
+            );
+        } catch (NumberFormatException ignored) {
+            // Majo leaves the catalog unchanged for a nonnumeric id.
+        }
+
+        return listProviders();
+    }
+
+    private static String firstNonBlank(
+        Map<String, String> body,
+        String key,
+        String fallback
+    ) {
+        String value = body.get(key);
+        return value == null || value.isBlank()
+            ? fallback
+            : value.trim();
+    }
+
+    private static String firstNonBlank(
+        Map<String, String> body,
+        String firstKey,
+        String secondKey,
+        String fallback
+    ) {
+        String value = body.get(firstKey);
+        if (value == null || value.isBlank()) {
+            value = body.get(secondKey);
+        }
+        return value == null || value.isBlank()
+            ? fallback
+            : value.trim();
     }
 
     private ProviderInfoDto toProviderDto(
