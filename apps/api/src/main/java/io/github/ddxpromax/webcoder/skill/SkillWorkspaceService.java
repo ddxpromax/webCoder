@@ -121,6 +121,20 @@ public class SkillWorkspaceService {
         String content,
         boolean enabled
     ) {
+        return create(workspace, name, content, null,
+            null, null, null, enabled);
+    }
+
+    public synchronized Map<String, Object> create(
+        Path workspace,
+        String name,
+        String content,
+        Map<String, Object> references,
+        Map<String, Object> scripts,
+        Map<String, Object> extraFiles,
+        Map<String, Object> config,
+        boolean enabled
+    ) {
         String skillName = skillName(name);
         validateContent(content);
         ensureSafe(skillName, content);
@@ -137,8 +151,27 @@ public class SkillWorkspaceService {
                 directory.resolve("SKILL.md"), content,
                 StandardCharsets.UTF_8
             );
+            Map<String, String> scanFiles = new LinkedHashMap<>();
+            writeTree(directory.resolve("references"),
+                references, "references", scanFiles);
+            writeTree(directory.resolve("scripts"),
+                scripts, "scripts", scanFiles);
+            writeTree(directory, extraFiles, "", scanFiles);
+            var scan = SkillSecurityScanner.scan(
+                skillName, content, scanFiles
+            );
+            if (scan.verdict()
+                == SkillSecurityScanner.Verdict.DANGEROUS) {
+                throw new IllegalArgumentException(
+                    "Skill security scan failed: "
+                        + scan.reportText()
+                );
+            }
             Map<String, Object> entry = defaultEntry();
             entry.put("enabled", enabled);
+            if (config != null) {
+                entry.put("config", new LinkedHashMap<>(config));
+            }
             entries(manifest).put(skillName, entry);
             files.writeAtomic(manifestPath(root), manifest);
             return Map.of("success", true, "name", skillName);
@@ -276,6 +309,16 @@ public class SkillWorkspaceService {
         return updateEntry(workspace, name, entry ->
             entry.put("config", config == null
                 ? Map.of() : new LinkedHashMap<>(config))
+        );
+    }
+
+    public synchronized boolean setInstalledFrom(
+        Path workspace,
+        String name,
+        String origin
+    ) {
+        return updateEntry(workspace, name, entry ->
+            entry.put("installed_from", origin)
         );
     }
 
@@ -518,6 +561,50 @@ public class SkillWorkspaceService {
             throw new IllegalStateException(
                 "Could not delete skill files", exception
             );
+        }
+    }
+
+    private static void writeTree(
+        Path base,
+        Map<String, Object> tree,
+        String prefix,
+        Map<String, String> scanFiles
+    ) throws IOException {
+        if (tree == null || tree.isEmpty()) {
+            return;
+        }
+        Files.createDirectories(base);
+        for (Map.Entry<String, Object> entry : tree.entrySet()) {
+            String key = entry.getKey().replace('\\', '/');
+            Path path = base.resolve(key).normalize();
+            if (key.startsWith("/") || !path.startsWith(base)
+                || path.equals(base) || Files.isSymbolicLink(path)
+                || (prefix.isEmpty() && path.equals(
+                    base.resolve("SKILL.md")))) {
+                throw new IllegalArgumentException(
+                    "Invalid skill file path: " + key
+                );
+            }
+            String relative = prefix.isEmpty() ? key
+                : prefix + "/" + key;
+            Object value = entry.getValue();
+            if (value instanceof Map<?, ?> raw) {
+                Map<String, Object> nested = new LinkedHashMap<>();
+                raw.forEach((nestedKey, nestedValue) -> nested.put(
+                    String.valueOf(nestedKey), nestedValue
+                ));
+                writeTree(path, nested, relative, scanFiles);
+            } else if (value == null || value instanceof String) {
+                String content = value == null ? "" : (String) value;
+                Files.createDirectories(path.getParent());
+                Files.writeString(path, content,
+                    StandardCharsets.UTF_8);
+                scanFiles.put(relative, content);
+            } else {
+                throw new IllegalArgumentException(
+                    "Invalid skill file content: " + key
+                );
+            }
         }
     }
 

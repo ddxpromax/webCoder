@@ -2,6 +2,7 @@ package io.github.ddxpromax.webcoder;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -32,6 +33,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.testcontainers.containers.MySQLContainer;
 
@@ -144,6 +146,38 @@ class ChatPersistenceTests {
                 skillName))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.deleted").value(true));
+    }
+
+    @Test
+    void agentSkillZipUploadEndpointImportsTheBundle()
+        throws Exception {
+        String name = "zip_" + java.util.UUID.randomUUID()
+            .toString().replace("-", "");
+        java.io.ByteArrayOutputStream bytes =
+            new java.io.ByteArrayOutputStream();
+        try (java.util.zip.ZipOutputStream zip =
+                 new java.util.zip.ZipOutputStream(bytes)) {
+            zip.putNextEntry(new java.util.zip.ZipEntry(
+                "SKILL.md"
+            ));
+            zip.write(("---\nname: " + name
+                + "\ndescription: A ZIP imported skill\n---\n"
+                + "Follow the task.\n").getBytes(
+                    java.nio.charset.StandardCharsets.UTF_8
+                ));
+            zip.closeEntry();
+        }
+        MockMultipartFile file = new MockMultipartFile(
+            "file", "skill.zip", "application/zip",
+            bytes.toByteArray()
+        );
+
+        mockMvc.perform(multipart(
+                "/api/agents/default/skills/upload"
+            ).file(file))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.count").value(1))
+            .andExpect(jsonPath("$.imported[0]").value(name));
     }
 
     @Test

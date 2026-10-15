@@ -1,5 +1,7 @@
 package io.github.ddxpromax.webcoder.skill;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.ddxpromax.webcoder.agent.AgentStore;
 import jakarta.servlet.http.HttpServletRequest;
 import java.nio.file.Path;
@@ -16,7 +18,9 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.web.multipart.MultipartFile;
 
 /** Majo's workspace skill endpoints, scoped by agent or X-Agent-Id. */
 @RestController
@@ -24,13 +28,19 @@ import org.springframework.web.server.ResponseStatusException;
 public class SkillsController {
     private final SkillWorkspaceService skills;
     private final AgentStore agents;
+    private final SkillZipImportService zipImport;
+    private final ObjectMapper mapper;
 
     public SkillsController(
         SkillWorkspaceService skills,
-        AgentStore agents
+        AgentStore agents,
+        SkillZipImportService zipImport,
+        ObjectMapper mapper
     ) {
         this.skills = skills;
         this.agents = agents;
+        this.zipImport = zipImport;
+        this.mapper = mapper;
     }
 
     @GetMapping({"/skills", "/agents/{agentId}/skills"})
@@ -60,6 +70,10 @@ public class SkillsController {
             workspace(agentId, request),
             text(body.get("name")),
             text(body.get("content")),
+            asMap(body.get("references")),
+            asMap(body.get("scripts")),
+            asMap(body.get("extra_files")),
+            asMap(body.get("config")),
             !Boolean.FALSE.equals(body.get("enable"))
         );
         if (!Boolean.TRUE.equals(result.get("success"))) {
@@ -71,6 +85,39 @@ public class SkillsController {
             "created", true,
             "name", result.get("name")
         );
+    }
+
+    @PostMapping({
+        "/skills/upload",
+        "/agents/{agentId}/skills/upload"
+    })
+    public ResponseEntity<Map<String, Object>> upload(
+        @PathVariable(required = false) String agentId,
+        @RequestParam("file") MultipartFile file,
+        @RequestParam(defaultValue = "true") boolean enable,
+        @RequestParam(defaultValue = "") String target_name,
+        @RequestParam(defaultValue = "") String rename_map,
+        HttpServletRequest request
+    ) throws java.io.IOException {
+        Map<String, String> renames;
+        try {
+            renames = rename_map.isBlank() ? Map.of()
+                : mapper.readValue(rename_map,
+                    new TypeReference<Map<String, String>>() {});
+        } catch (Exception exception) {
+            throw new IllegalArgumentException(
+                "rename_map must be a JSON object", exception
+            );
+        }
+        Map<String, Object> result = zipImport.importZip(
+            workspace(agentId, request), file.getBytes(),
+            enable, target_name, renames
+        );
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> conflicts =
+            (List<Map<String, Object>>) result.get("conflicts");
+        return ResponseEntity.status(conflicts.isEmpty()
+            ? HttpStatus.OK : HttpStatus.CONFLICT).body(result);
     }
 
     @PutMapping("/skills/save")

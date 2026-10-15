@@ -106,4 +106,25 @@ class SkillWorkspaceServiceTests {
         assertThat(service.enabledNames(workspace))
             .containsExactly("review");
     }
+
+    @Test
+    void createIncludesReferencesScriptsAndConfig() {
+        service.create(
+            workspace, "review", SKILL,
+            Map.of("guides", Map.of("checklist.md",
+                "Check behavior.")),
+            Map.of("inspect.sh", "cat README.md"),
+            Map.of("notes.md", "Keep notes."),
+            Map.of("depth", "full"), false
+        );
+        assertThat(service.loadFile(
+            workspace, "review",
+            "references/guides/checklist.md"
+        )).isEqualTo("Check behavior.");
+        assertThat(service.loadFile(
+            workspace, "review", "scripts/inspect.sh"
+        )).isEqualTo("cat README.md");
+        assertThat(service.config(workspace, "review"))
+            .containsEntry("config", Map.of("depth", "full"));
+    }
 }

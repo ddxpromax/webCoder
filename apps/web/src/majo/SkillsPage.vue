@@ -28,6 +28,8 @@ const saving = ref(false)
 const error = ref('')
 const notice = ref('')
 const filter = ref('')
+const archive = ref<File | null>(null)
+const importEnabled = ref(true)
 
 const base = computed(() => `/agents/${encodeURIComponent(workbench.agentId)}/skills`)
 const selected = computed(() => skills.value.find((skill) => skill.name === selectedName.value))
@@ -155,6 +157,36 @@ async function remove() {
   }
 }
 
+function selectArchive(event: Event) {
+  archive.value = (event.target as HTMLInputElement)
+    .files?.[0] ?? null
+}
+
+async function upload() {
+  if (!archive.value) {
+    error.value = 'Choose a ZIP archive first.'
+    return
+  }
+  saving.value = true
+  error.value = ''
+  notice.value = ''
+  try {
+    const body = new FormData()
+    body.append('file', archive.value)
+    body.append('enable', String(importEnabled.value))
+    const result = await apiRequest<{ imported: string[] }>(
+      `${base.value}/upload`, { method: 'POST', body }, workbench.agentId,
+    )
+    archive.value = null
+    await refresh(result.imported[0])
+    notice.value = `Imported ${result.imported.length} skill${result.imported.length === 1 ? '' : 's'}.`
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : 'Could not import skills.'
+  } finally {
+    saving.value = false
+  }
+}
+
 watch(() => workbench.agentId, () => {
   selectedName.value = ''
   creating.value = false
@@ -171,6 +203,11 @@ onMounted(() => void refresh())
     </header>
     <p v-if="error" class="inline-error" role="alert">{{ error }}</p>
     <p v-if="notice" class="success-notice">{{ notice }}</p>
+    <form class="skills-upload settings-card" @submit.prevent="upload">
+      <label>Import skills from ZIP <input type="file" accept=".zip,application/zip" @change="selectArchive" /></label>
+      <label class="skills-checkbox"><input v-model="importEnabled" type="checkbox" /> Enable imported skills</label>
+      <button type="submit" :disabled="saving">Import</button>
+    </form>
     <div class="skills-grid">
       <div class="settings-card skills-list">
         <input v-model="filter" aria-label="Find skills" placeholder="Find skills" />
