@@ -5,6 +5,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
+import io.github.ddxpromax.webcoder.model.ModelRoutingService;
+import io.github.ddxpromax.webcoder.settings.SettingsService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -16,14 +18,34 @@ public class MemoryBackendRegistry {
         LoggerFactory.getLogger(MemoryBackendRegistry.class);
 
     private final AgentStore agents;
+    private final MemorySummarizer summarizer;
+    private final ModelRoutingService routing;
+    private final SettingsService settings;
+    private final EmbeddingClient embeddingClient;
     private final Map<String, Supplier<MemoryBackend>> backends =
         new LinkedHashMap<>();
     private final ConcurrentHashMap<String, MemoryBackend> active =
         new ConcurrentHashMap<>();
 
-    public MemoryBackendRegistry(AgentStore agents) {
+    public MemoryBackendRegistry(
+        AgentStore agents,
+        MemorySummarizer summarizer,
+        ModelRoutingService routing,
+        SettingsService settings,
+        EmbeddingClient embeddingClient
+    ) {
         this.agents = agents;
+        this.summarizer = summarizer;
+        this.routing = routing;
+        this.settings = settings;
+        this.embeddingClient = embeddingClient;
         backends.put("keyword", KeywordMemoryBackend::new);
+        backends.put("summary", () -> new SummaryMemoryBackend(
+            this.summarizer
+        ));
+        backends.put("embedding", () -> new EmbeddingMemoryBackend(
+            this.routing, this.settings, this.embeddingClient
+        ));
     }
 
     public List<String> backendIds() {

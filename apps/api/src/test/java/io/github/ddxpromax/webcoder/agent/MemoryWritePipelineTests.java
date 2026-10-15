@@ -19,7 +19,11 @@ class MemoryWritePipelineTests {
         AgentStore agents = agentStore();
         JsonFileStore files = new JsonFileStore(new ObjectMapper());
         MemoryBackendRegistry registry = new MemoryBackendRegistry(
-            agents
+            agents,
+            org.mockito.Mockito.mock(MemorySummarizer.class),
+            org.mockito.Mockito.mock(io.github.ddxpromax.webcoder.model.ModelRoutingService.class),
+            org.mockito.Mockito.mock(io.github.ddxpromax.webcoder.settings.SettingsService.class),
+            org.mockito.Mockito.mock(EmbeddingClient.class)
         );
         MemoryWritePipeline pipeline = new MemoryWritePipeline(
             agents, registry, files

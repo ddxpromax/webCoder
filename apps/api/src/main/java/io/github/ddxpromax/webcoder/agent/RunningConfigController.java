@@ -17,9 +17,14 @@ import org.springframework.web.bind.annotation.RestController;
 @CrossOrigin(origins = "*")
 public class RunningConfigController {
     private final AgentStore agents;
+    private final MemoryBackendRegistry memoryBackends;
 
-    public RunningConfigController(AgentStore agents) {
+    public RunningConfigController(
+        AgentStore agents,
+        MemoryBackendRegistry memoryBackends
+    ) {
         this.agents = agents;
+        this.memoryBackends = memoryBackends;
     }
 
     @GetMapping("/workspace/running-config")
@@ -59,6 +64,8 @@ public class RunningConfigController {
         Map<String, Object> running = new LinkedHashMap<>(body);
         running.remove("approval_level");
         agents.saveRunningConfig(agentId, running, level);
+        memoryBackends.evict(agentId);
+        memoryBackends.resolve(agentId);
         return getFor(agentId);
     }
 

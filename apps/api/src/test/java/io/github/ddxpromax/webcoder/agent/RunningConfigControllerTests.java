@@ -12,6 +12,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.agentscope.core.hook.PreCallEvent;
+import io.github.ddxpromax.webcoder.model.ModelRoutingService;
+import io.github.ddxpromax.webcoder.settings.SettingsService;
 import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -24,8 +26,9 @@ class RunningConfigControllerTests {
     @Test
     void mergesMajoDefaultsAndPersistsOverrides() throws Exception {
         AgentStore agents = store();
+        MemoryBackendRegistry backends = registry(agents);
         var mvc = MockMvcBuilders.standaloneSetup(
-            new RunningConfigController(agents)
+            new RunningConfigController(agents, backends)
         ).build();
 
         mvc.perform(get("/api/workspace/running-config"))
@@ -63,6 +66,32 @@ class RunningConfigControllerTests {
     }
 
     @Test
+    void memoryBackendSwitchTakesEffectWithoutRestart() {
+        AgentStore agents = store();
+        MemoryBackendRegistry backends = registry(agents);
+        RunningConfigController controller =
+            new RunningConfigController(agents, backends);
+
+        controller.updateFor("default", java.util.Map.of(
+            "memory_manager_backend", "keyword"
+        ));
+        assertThat(backends.resolve("default").id())
+            .isEqualTo("keyword");
+
+        controller.updateFor("default", java.util.Map.of(
+            "memory_manager_backend", "summary"
+        ));
+        assertThat(backends.resolve("default").id())
+            .isEqualTo("summary");
+
+        controller.updateFor("default", java.util.Map.of(
+            "memory_manager_backend", "missing"
+        ));
+        assertThat(backends.resolve("default").id())
+            .isEqualTo("keyword");
+    }
+
+    @Test
     void codingModePersistsAndInjectsPromptOnPreCall() throws Exception {
         AgentStore agents = store();
         CodingModeService service = new CodingModeService(agents);
@@ -96,6 +125,16 @@ class RunningConfigControllerTests {
         return new AgentStore(
             new MajoWorkingDirectory(directory.toString()),
             new JsonFileStore(new ObjectMapper())
+        );
+    }
+
+    private MemoryBackendRegistry registry(AgentStore agents) {
+        return new MemoryBackendRegistry(
+            agents,
+            mock(MemorySummarizer.class),
+            mock(ModelRoutingService.class),
+            mock(SettingsService.class),
+            mock(EmbeddingClient.class)
         );
     }
 }
