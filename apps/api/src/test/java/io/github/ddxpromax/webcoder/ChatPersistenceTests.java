@@ -12,6 +12,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 
 import io.github.ddxpromax.webcoder.chat.ChatEntity;
 import io.github.ddxpromax.webcoder.chat.ChatService;
+import io.github.ddxpromax.webcoder.model.ModelRoutingService;
 import java.sql.Connection;
 import java.util.List;
 import java.util.Map;
@@ -54,6 +55,9 @@ class ChatPersistenceTests {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private ModelRoutingService modelRouting;
 
     @Test
     void chatMessagesPersistAndLoadThroughMajoShapedApi() throws Exception {
@@ -1111,5 +1115,21 @@ class ChatPersistenceTests {
                 originalDark
             );
         }
+    }
+
+    @Test
+    void activeProviderBuildsAgentScopeModelWithMajoContextWindow() {
+        var model = modelRouting.buildOpenAIChatModel(
+            "openai", "gpt-5.2"
+        );
+        assertThat(model.getModelName()).isEqualTo("gpt-5.2");
+        assertThat(model.getContextWindowSize())
+            .isEqualTo(131072);
+
+        var fallback = modelRouting.buildOpenAIChatModel(
+            "not-a-provider", "fallback-model"
+        );
+        assertThat(fallback.getModelName())
+            .isEqualTo("fallback-model");
     }
 }

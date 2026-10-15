@@ -1,5 +1,6 @@
 package io.github.ddxpromax.webcoder.model;
 
+import io.agentscope.extensions.model.openai.OpenAIChatModel;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -129,6 +130,35 @@ public class ModelRoutingService {
         }
 
         return new ProviderConnection("", "", "OpenAIChatModel");
+    }
+
+    public OpenAIChatModel buildOpenAIChatModel(
+        String providerId,
+        String modelId
+    ) {
+        ProviderConnection connection = resolveProviderConnection(
+            providerId
+        );
+        String resolvedModel = modelId == null
+            ? "gpt-4o-mini"
+            : modelId;
+        if (connection.baseUrl().isBlank()) {
+            return OpenAIChatModel.builder()
+                .apiKey(connection.apiKey())
+                .baseUrl("https://api.openai.com/v1")
+                .modelName(resolvedModel)
+                .build();
+        }
+
+        var builder = OpenAIChatModel.builder()
+            .apiKey(connection.apiKey())
+            .baseUrl(connection.baseUrl())
+            .modelName(resolvedModel);
+        Integer contextSize = getContextSize(providerId, modelId);
+        if (contextSize != null && contextSize > 0) {
+            builder.contextWindowSize(contextSize);
+        }
+        return builder.build();
     }
 
     @Transactional
