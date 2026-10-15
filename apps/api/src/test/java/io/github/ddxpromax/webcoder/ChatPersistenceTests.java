@@ -827,4 +827,182 @@ class ChatPersistenceTests {
             );
         }
     }
+
+    @Test
+    void connectionAndDiscoveryMatchMajo() throws Exception {
+        String providerId = "test-" + java.util.UUID.randomUUID();
+        jdbcTemplate.update(
+            "INSERT INTO providers (id, name) VALUES (?, ?)",
+            providerId,
+            "Discovery Test Provider"
+        );
+
+        var server = com.sun.net.httpserver.HttpServer.create(
+            new java.net.InetSocketAddress("127.0.0.1", 0),
+            0
+        );
+        var authorization =
+            new java.util.concurrent.atomic.AtomicReference<String>();
+        byte[] responseBody = """
+            {
+              "data": [
+                {"id": "discovered-alpha", "name": "Alpha"},
+                {"name": "Missing ID"}
+              ]
+            }
+            """.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        server.createContext("/v1/models", exchange -> {
+            authorization.set(
+                exchange.getRequestHeaders().getFirst("Authorization")
+            );
+            exchange.getResponseHeaders().set(
+                "Content-Type", "application/json"
+            );
+            exchange.sendResponseHeaders(200, responseBody.length);
+            try (var output = exchange.getResponseBody()) {
+                output.write(responseBody);
+            }
+        });
+
+        try {
+            server.start();
+            String baseUrl = "http://127.0.0.1:"
+                + server.getAddress().getPort() + "/v1";
+            String requestBody = """
+                {"base_url":"%s","api_key":"test-key"}
+                """.formatted(baseUrl);
+
+            mockMvc.perform(post(
+                    "/api/models/{providerId}/test", providerId
+                )
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(requestBody))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.message")
+                    .value("Connection successful"));
+            assertThat(authorization.get())
+                .isEqualTo("Bearer test-key");
+
+            mockMvc.perform(post(
+                    "/api/models/{providerId}/models/test", providerId
+                )
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "base_url":"%s",
+                      "api_key":"test-key",
+                      "model_id":"any-model"
+                    }
+                    """.formatted(baseUrl)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.message").value(
+                    "Model 'any-model' connection successful"
+                ));
+
+            mockMvc.perform(post(
+                    "/api/models/{providerId}/discover", providerId
+                )
+                .param("save", "false")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(requestBody))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.models.length()").value(1))
+                .andExpect(jsonPath("$.models[0].id")
+                    .value("discovered-alpha"))
+                .andExpect(jsonPath("$.added_count").value(0));
+            assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM provider_models WHERE provider_id = ?",
+                Long.class,
+                providerId
+            )).isZero();
+
+            mockMvc.perform(post(
+                    "/api/models/{providerId}/discover", providerId
+                )
+                .param("save", "true")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(requestBody))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.models[0].max_tokens")
+                    .value(8192))
+                .andExpect(jsonPath("$.added_count").value(1));
+            assertThat(jdbcTemplate.queryForObject(
+                """
+                SELECT probe_source FROM provider_models
+                WHERE provider_id = ? AND model_id = ?
+                """,
+                String.class,
+                providerId,
+                "discovered-alpha"
+            )).isEqualTo("openai-models");
+
+            jdbcTemplate.update(
+                """
+                UPDATE provider_models
+                SET max_tokens = 4096,
+                    max_input_length = 32768,
+                    max_input_length_configured = TRUE
+                WHERE provider_id = ? AND model_id = ?
+                """,
+                providerId,
+                "discovered-alpha"
+            );
+            mockMvc.perform(post(
+                    "/api/models/{providerId}/discover", providerId
+                )
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(requestBody))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.added_count").value(1))
+                .andExpect(jsonPath("$.models[0].max_tokens")
+                    .value(4096))
+                .andExpect(jsonPath(
+                    "$.models[0].max_input_length_configured"
+                ).value(true));
+            assertThat(jdbcTemplate.queryForObject(
+                """
+                SELECT max_input_length FROM provider_models
+                WHERE provider_id = ? AND model_id = ?
+                """,
+                Integer.class,
+                providerId,
+                "discovered-alpha"
+            )).isEqualTo(32768);
+        } finally {
+            server.stop(0);
+            jdbcTemplate.update(
+                "DELETE FROM providers WHERE id = ?",
+                providerId
+            );
+        }
+    }
+
+    @Test
+    void multimodalProbeUsesMajoModelIdHeuristic() throws Exception {
+        mockMvc.perform(post(
+                "/api/models/any-provider/models/gpt-4o-vision"
+                    + "/probe-multimodal"
+            ))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.supports_image").value(true))
+            .andExpect(jsonPath("$.supports_video").value(false))
+            .andExpect(jsonPath("$.supports_multimodal").value(true))
+            .andExpect(jsonPath("$.image_message").value(""))
+            .andExpect(jsonPath("$.video_message")
+                .value("Model does not support video input"));
+
+        mockMvc.perform(post("/api/models/nonexistent/discover")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.success").value(false))
+            .andExpect(jsonPath("$.message")
+                .value("base_url is required"))
+            .andExpect(jsonPath("$.models.length()").value(0))
+            .andExpect(jsonPath("$.added_count").value(0));
+    }
 }

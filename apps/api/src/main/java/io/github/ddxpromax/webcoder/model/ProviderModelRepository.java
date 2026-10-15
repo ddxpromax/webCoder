@@ -126,6 +126,79 @@ public class ProviderModelRepository {
         Boolean hidden
     ) {}
 
+    public Optional<DiscoveryRow> findDiscoveryRow(
+        String providerId,
+        String modelId
+    ) {
+        List<DiscoveryRow> rows = jdbc.query(
+            """
+            SELECT id, max_tokens, max_input_length,
+                   max_input_length_configured
+            FROM provider_models
+            WHERE provider_id = :providerId
+              AND model_id = :modelId
+            LIMIT 2
+            """,
+            Map.of("providerId", providerId, "modelId", modelId),
+            (rs, rowNum) -> new DiscoveryRow(
+                rs.getLong("id"),
+                rs.getInt("max_tokens"),
+                rs.getInt("max_input_length"),
+                rs.getBoolean("max_input_length_configured")
+            )
+        );
+        if (rows.size() > 1) {
+            throw new IllegalStateException(
+                "Duplicate model rows exist for this provider"
+            );
+        }
+        return rows.stream().findFirst();
+    }
+
+    public void saveDiscoveredModel(
+        String providerId,
+        String modelId,
+        String name,
+        Long existingRowId
+    ) {
+        if (existingRowId != null) {
+            jdbc.update(
+                """
+                UPDATE provider_models
+                SET name = :name, probe_source = 'openai-models'
+                WHERE id = :id
+                """,
+                Map.of("id", existingRowId, "name", name)
+            );
+            return;
+        }
+
+        jdbc.update(
+            """
+            INSERT INTO provider_models (
+                provider_id, model_id, name, probe_source,
+                max_tokens, max_input_length,
+                max_input_length_configured
+            ) VALUES (
+                :providerId, :modelId, :name, 'openai-models',
+                8192, 131072, FALSE
+            )
+            """,
+            Map.of(
+                "providerId", providerId,
+                "modelId", modelId,
+                "name", name
+            )
+        );
+    }
+
+    public record DiscoveryRow(
+        Long id,
+        Integer maxTokens,
+        Integer maxInputLength,
+        Boolean maxInputLengthConfigured
+    ) {}
+
     public void setHidden(
         String providerId,
         String modelId,

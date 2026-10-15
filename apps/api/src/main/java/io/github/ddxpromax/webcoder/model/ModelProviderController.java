@@ -30,19 +30,22 @@ public class ModelProviderController {
     private final ProviderModelRepository providerModelRepo;
     private final ModelConfigRepository modelConfigRepo;
     private final ObjectMapper mapper;
+    private final ModelDiscoveryService discoveryService;
 
     public ModelProviderController(
         ModelRoutingService routing,
         ProviderRepository providerRepo,
         ProviderModelRepository providerModelRepo,
         ModelConfigRepository modelConfigRepo,
-        ObjectMapper mapper
+        ObjectMapper mapper,
+        ModelDiscoveryService discoveryService
     ) {
         this.routing = routing;
         this.providerRepo = providerRepo;
         this.providerModelRepo = providerModelRepo;
         this.modelConfigRepo = modelConfigRepo;
         this.mapper = mapper;
+        this.discoveryService = discoveryService;
     }
 
     @GetMapping("/models/active")
@@ -639,5 +642,139 @@ public class ModelProviderController {
         } catch (Exception ignored) {
             return null;
         }
+    }
+
+    private Map<String, String> resolveConnectionParams(
+        String providerId,
+        Map<String, Object> body
+    ) {
+        var connection = routing.resolveProviderConnection(providerId);
+        String baseUrl = connection.baseUrl();
+        String apiKey = connection.apiKey();
+        if (body != null) {
+            if (body.get("base_url") != null) {
+                baseUrl = String.valueOf(body.get("base_url"));
+            }
+            if (body.get("api_key") != null) {
+                apiKey = String.valueOf(body.get("api_key"));
+            }
+        }
+        Map<String, String> result = new LinkedHashMap<>();
+        result.put("base_url", baseUrl);
+        result.put("api_key", apiKey);
+        return result;
+    }
+
+    @PostMapping("/models/{provider_id}/test")
+    public Map<String, Object> testProvider(
+        @PathVariable("provider_id") String providerId,
+        @RequestBody(required = false) Map<String, Object> body
+    ) {
+        var params = resolveConnectionParams(providerId, body);
+        boolean success = discoveryService.testConnection(
+            params.get("base_url"),
+            params.get("api_key")
+        );
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("success", success);
+        result.put(
+            "message",
+            success
+                ? "Connection successful"
+                : "Connection failed: invalid base_url or api_key"
+        );
+        return result;
+    }
+
+    @PostMapping("/models/{provider_id}/models/test")
+    public Map<String, Object> testModel(
+        @PathVariable("provider_id") String providerId,
+        @RequestBody Map<String, Object> body
+    ) {
+        var params = resolveConnectionParams(providerId, body);
+        String modelId = body.get("model_id") == null
+            ? ""
+            : String.valueOf(body.get("model_id"));
+        boolean success = discoveryService.testConnection(
+            params.get("base_url"),
+            params.get("api_key")
+        );
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("success", success);
+        result.put(
+            "message",
+            success
+                ? "Model '" + modelId + "' connection successful"
+                : "Model connection failed: invalid base_url or api_key"
+        );
+        return result;
+    }
+
+    @PostMapping("/models/{provider_id}/discover")
+    public Map<String, Object> discoverModels(
+        @PathVariable("provider_id") String providerId,
+        @RequestBody(required = false) Map<String, Object> body,
+        @RequestParam(defaultValue = "true") boolean save
+    ) {
+        var params = resolveConnectionParams(providerId, body);
+        var discovery = discoveryService.discover(
+            providerId,
+            params.get("base_url"),
+            params.get("api_key"),
+            save
+        );
+        List<ModelInfoDto> resultModels = new ArrayList<>();
+        for (var discovered : discovery.models()) {
+            ModelInfoDto dto = new ModelInfoDto();
+            dto.setId(discovered.id());
+            dto.setName(discovered.name());
+            dto.setProbeSource(discovered.probeSource());
+            dto.setMaxTokens(discovered.maxTokens());
+            dto.setMaxInputLength(discovered.maxInputLength());
+            dto.setMaxInputLengthConfigured(
+                discovered.maxInputLengthConfigured()
+            );
+            resultModels.add(dto);
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("success", discovery.success());
+        result.put("message", discovery.message());
+        result.put("models", resultModels);
+        result.put(
+            "added_count",
+            save && discovery.success() ? resultModels.size() : 0
+        );
+        return result;
+    }
+
+    @PostMapping("/models/{provider_id}/models/{model_id}/probe-multimodal")
+    public Map<String, Object> probeMultimodal(
+        @PathVariable("provider_id") String providerId,
+        @PathVariable("model_id") String modelId
+    ) {
+        String lower = modelId.toLowerCase();
+        boolean supportsImage = lower.contains("vision")
+            || lower.contains("vl")
+            || lower.contains("omni")
+            || lower.contains("gpt-4o")
+            || lower.contains("gemini");
+        boolean supportsVideo = lower.contains("video")
+            || lower.contains("gemini");
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("supports_image", supportsImage);
+        result.put("supports_video", supportsVideo);
+        result.put(
+            "supports_multimodal",
+            supportsImage || supportsVideo
+        );
+        result.put(
+            "image_message",
+            supportsImage ? "" : "Model does not support image input"
+        );
+        result.put(
+            "video_message",
+            supportsVideo ? "" : "Model does not support video input"
+        );
+        return result;
     }
 }
