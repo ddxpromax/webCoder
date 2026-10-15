@@ -94,13 +94,32 @@ class ApprovalControllerTests {
             .contains("User denied");
     }
 
+    @Test
+    void dangerousCommandIsBlockedBeforeApproval() {
+        ApprovalStore store = new ApprovalStore();
+        ApprovalHook hook = hook(store);
+        PreActingEvent event = event(
+            "execute_command",
+            Map.of("command", "rm -rf /")
+        );
+        hook.onEvent(event).block();
+        assertThat(event.getToolUse().getState())
+            .isEqualTo(ToolCallState.FINISHED);
+        assertThat(event.getToolUse().getContent())
+            .contains("Tool Guard");
+        assertThat(store.listPending()).isEmpty();
+    }
+
     private ApprovalHook hook(ApprovalStore store) {
         AgentStore agents = new AgentStore(
             new MajoWorkingDirectory(workingDir.toString()),
             new JsonFileStore(new ObjectMapper())
         );
         ApprovalHook hook = new ApprovalHook(
-            "default", agents, store
+            "default", agents, store,
+            new ToolGuardService(agents),
+            new FileGuardService(agents),
+            workingDir
         );
         hook.setRuntimeContext(RuntimeContext.builder()
             .sessionId("session-1").build());
@@ -108,12 +127,19 @@ class ApprovalControllerTests {
     }
 
     private static PreActingEvent event(String toolName) {
+        return event(toolName, Map.of("path", "file.txt"));
+    }
+
+    private static PreActingEvent event(
+        String toolName,
+        Map<String, Object> input
+    ) {
         return new PreActingEvent(
             mock(Agent.class),
             new Toolkit(),
             new ToolUseBlock(
                 "tool-1", toolName,
-                Map.of("path", "file.txt")
+                input
             )
         );
     }

@@ -8,6 +8,7 @@ import io.agentscope.core.hook.RuntimeContextAware;
 import io.agentscope.core.message.ToolCallState;
 import io.agentscope.core.message.ToolUseBlock;
 import java.util.Set;
+import java.nio.file.Path;
 import java.util.concurrent.atomic.AtomicReference;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
@@ -18,13 +19,14 @@ public class ApprovalHook implements Hook, RuntimeContextAware {
     private static final Set<String> READ_ONLY_TOOLS = Set.of(
         "read_file", "list_directory", "search_code",
         "find_symbol", "grep_search", "glob_search",
-        "git_status", "git_diff", "git_branch", "git_log",
+        "git_status", "git_diff", "git_log",
         "get_current_time", "view_image", "view_video",
         "web_fetch", "web_search"
     );
     private static final Set<String> GUARDED_TOOLS = Set.of(
         "execute_shell_command", "write_file", "edit_file",
         "append_file", "git_commit", "git_add",
+        "git_branch",
         "send_file_to_user", "browser_use",
         "desktop_screenshot", "execute_command", "bash"
     );
@@ -32,17 +34,26 @@ public class ApprovalHook implements Hook, RuntimeContextAware {
     private final String agentId;
     private final AgentStore agents;
     private final ApprovalStore store;
+    private final ToolGuardService guard;
+    private final FileGuardService fileGuard;
+    private final Path workspace;
     private final AtomicReference<RuntimeContext> context =
         new AtomicReference<>();
 
     public ApprovalHook(
         String agentId,
         AgentStore agents,
-        ApprovalStore store
+        ApprovalStore store,
+        ToolGuardService guard,
+        FileGuardService fileGuard,
+        Path workspace
     ) {
         this.agentId = agentId;
         this.agents = agents;
         this.store = store;
+        this.guard = guard;
+        this.fileGuard = fileGuard;
+        this.workspace = workspace;
     }
 
     @Override
@@ -56,8 +67,25 @@ public class ApprovalHook implements Hook, RuntimeContextAware {
             return Mono.just(event);
         }
         ToolUseBlock toolUse = acting.getToolUse();
-        if (toolUse == null
-            || !needsApproval(toolUse.getName())) {
+        if (toolUse == null) {
+            return Mono.just(event);
+        }
+        String reason = guard.check(
+            toolUse.getName(), toolUse.getInput()
+        );
+        if (reason == null) {
+            reason = fileGuard.check(
+                toolUse.getName(), toolUse.getInput(),
+                workspace
+            );
+        }
+        if (reason != null) {
+            acting.setToolUse(rejected(toolUse, reason));
+            return Mono.just(event);
+        }
+        if (!needsApproval(
+            toolUse.getName(), toolUse.getInput()
+        )) {
             return Mono.just(event);
         }
         return Mono.fromCallable(() -> {
@@ -73,16 +101,25 @@ public class ApprovalHook implements Hook, RuntimeContextAware {
                 store.resolve(request.requestId,
                     "denied", "timeout or cancellation"
                 );
-                acting.setToolUse(ToolUseBlock.builder()
-                    .id(toolUse.getId())
-                    .name(toolUse.getName())
-                    .input(toolUse.getInput())
-                    .content("User denied this tool call.")
-                    .state(ToolCallState.FINISHED)
-                    .build());
+                acting.setToolUse(rejected(
+                    toolUse, "User denied this tool call."
+                ));
             }
             return event;
         }).subscribeOn(Schedulers.boundedElastic());
+    }
+
+    private static ToolUseBlock rejected(
+        ToolUseBlock original,
+        String reason
+    ) {
+        return ToolUseBlock.builder()
+            .id(original.getId())
+            .name(original.getName())
+            .input(original.getInput())
+            .content(reason)
+            .state(ToolCallState.FINISHED)
+            .build();
     }
 
     @Override
@@ -90,7 +127,15 @@ public class ApprovalHook implements Hook, RuntimeContextAware {
         return 10;
     }
 
-    private boolean needsApproval(String toolName) {
+    private boolean needsApproval(
+        String toolName,
+        java.util.Map<String, Object> input
+    ) {
+        if ("git_branch".equals(toolName)
+            && (input == null || input.get("name") == null
+                || String.valueOf(input.get("name")).isBlank())) {
+            return false;
+        }
         var profile = agents.getProfile(agentId);
         String level = profile == null
             ? "AUTO"

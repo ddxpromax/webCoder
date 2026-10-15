@@ -6,6 +6,8 @@ import io.agentscope.harness.agent.HarnessAgent;
 import io.github.ddxpromax.webcoder.model.ModelRoutingService;
 import io.github.ddxpromax.webcoder.settings.SettingsService;
 import java.nio.file.Path;
+import java.nio.file.Files;
+import java.io.IOException;
 import java.util.Map;
 import org.springframework.stereotype.Component;
 
@@ -20,6 +22,8 @@ public class HarnessAgentFactory {
     private final SettingsService settings;
     private final AgentStore agents;
     private final ApprovalStore approvals;
+    private final ToolGuardService toolGuard;
+    private final FileGuardService fileGuard;
     private final MajoWorkingDirectory workingDirectory;
 
     public HarnessAgentFactory(
@@ -27,12 +31,16 @@ public class HarnessAgentFactory {
         SettingsService settings,
         AgentStore agents,
         ApprovalStore approvals,
+        ToolGuardService toolGuard,
+        FileGuardService fileGuard,
         MajoWorkingDirectory workingDirectory
     ) {
         this.routing = routing;
         this.settings = settings;
         this.agents = agents;
         this.approvals = approvals;
+        this.toolGuard = toolGuard;
+        this.fileGuard = fileGuard;
         this.workingDirectory = workingDirectory;
     }
 
@@ -80,6 +88,14 @@ public class HarnessAgentFactory {
         Path workspace,
         OpenAIChatModel model
     ) {
+        try {
+            Files.createDirectories(workspace);
+        } catch (IOException exception) {
+            throw new IllegalStateException(
+                "Cannot create agent workspace: " + workspace,
+                exception
+            );
+        }
         return HarnessAgent.builder()
             .name(agentName(agentId))
             .agentId(agentId)
@@ -87,12 +103,17 @@ public class HarnessAgentFactory {
             .model(model)
             .toolkit(toolkitFor(workspace))
             .workspace(workspace)
-            .hook(new ApprovalHook(agentId, agents, approvals));
+            .hook(new ApprovalHook(
+                agentId, agents, approvals, toolGuard,
+                fileGuard, workspace
+            ));
     }
 
     Toolkit toolkitFor(Path workspace) {
         Toolkit toolkit = new Toolkit();
         toolkit.registerTool(new WorkspaceTools(workspace));
+        toolkit.registerTool(new ShellTool(workspace));
+        toolkit.registerTool(new GitTools(workspace));
         return toolkit;
     }
 }
