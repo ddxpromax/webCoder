@@ -7,6 +7,8 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
+import java.util.StringJoiner;
+import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 
 @Repository
 public class ProviderModelRepository {
@@ -123,4 +125,65 @@ public class ProviderModelRepository {
         String thinkingBudgetRange,
         Boolean hidden
     ) {}
+
+    public void setHidden(
+        String providerId,
+        String modelId,
+        boolean hidden
+    ) {
+        jdbc.update(
+            """
+            UPDATE provider_models
+            SET hidden = :hidden
+            WHERE provider_id = :providerId
+            AND model_id = :modelId
+            """,
+            new MapSqlParameterSource()
+                .addValue("providerId", providerId)
+                .addValue("modelId", modelId)
+                .addValue("hidden", hidden)
+        );
+    }
+
+    public void updateConfig(
+        String providerId,
+        String modelId,
+        Map<String, Object> updates
+    ) {
+        StringJoiner assignments = new StringJoiner(", ");
+        MapSqlParameterSource params = new MapSqlParameterSource()
+            .addValue("providerId", providerId)
+            .addValue("modelId", modelId);
+
+        // This fixed allowlist is the set of fields Majo updates.
+        for (String column : List.of(
+            "max_tokens",
+            "max_input_length",
+            "generate_kwargs",
+            "relay_reasoning",
+            "thinking_enabled",
+            "thinking_budget",
+            "reasoning_effort"
+        )) {
+            if (updates.containsKey(column)) {
+                assignments.add(column + " = :" + column);
+                params.addValue(column, updates.get(column));
+            }
+        }
+
+        if (updates.containsKey("max_input_length")) {
+            assignments.add("max_input_length_configured = TRUE");
+        }
+
+        if (assignments.length() == 0) {
+            return;
+        }
+
+        jdbc.update(
+            "UPDATE provider_models SET " + assignments
+                + " WHERE provider_id = :providerId"
+                + " AND model_id = :modelId",
+            params
+        );
+    }
 }

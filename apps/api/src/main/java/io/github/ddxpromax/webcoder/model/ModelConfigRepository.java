@@ -111,4 +111,33 @@ public class ModelConfigRepository {
             Map.of("id", id)
         );
     }
+
+    public Optional<CustomProviderRow> findFullById(long id) {
+        return jdbc.query(
+            """
+            SELECT id, name, api_key, base_url, model_name
+            FROM model_configs
+            WHERE id = :id
+            """,
+            Map.of("id", id),
+            (rs, rowNum) -> new CustomProviderRow(
+                rs.getLong("id"),
+                rs.getString("name"),
+                rs.getString("api_key"),
+                rs.getString("base_url"),
+                rs.getString("model_name")
+            )
+        ).stream().findFirst();
+    }
+
+    public void updateModelName(long id, String modelName) {
+        jdbc.update(
+            """
+            UPDATE model_configs
+            SET model_name = :modelName
+            WHERE id = :id
+            """,
+            Map.of("id", id, "modelName", modelName)
+        );
+    }
 }

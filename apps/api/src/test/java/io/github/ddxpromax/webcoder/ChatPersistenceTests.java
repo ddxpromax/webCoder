@@ -629,4 +629,202 @@ class ChatPersistenceTests {
             );
         }
     }
+
+    @Test
+    void builtInModelConfigurationAndVisibilityMatchMajo()
+        throws Exception {
+        String providerId = "test-" + java.util.UUID.randomUUID();
+
+        jdbcTemplate.update(
+            "INSERT INTO providers (id, name) VALUES (?, ?)",
+            providerId,
+            "Test Provider"
+        );
+        jdbcTemplate.update(
+            """
+            INSERT INTO provider_models (
+                provider_id, model_id, name
+            ) VALUES (?, ?, ?)
+            """,
+            providerId,
+            "test-model",
+            "Test Model"
+        );
+
+        try {
+            mockMvc.perform(put(
+                    "/api/models/{providerId}/models/{modelId}/config",
+                    providerId,
+                    "test-model"
+                )
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                    "max_tokens": 4096,
+                    "max_input_length": 16384,
+                    "generate_kwargs": {"temperature": 0.5},
+                    "relay_reasoning": false,
+                    "thinking_enabled": null,
+                    "thinking_budget": 2048,
+                    "reasoning_effort": "high"
+                    }
+                    """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.models[0].max_tokens")
+                    .value(4096))
+                .andExpect(jsonPath(
+                    "$.models[0].max_input_length_configured"
+                ).value(true));
+
+            assertThat(jdbcTemplate.queryForObject(
+                """
+                SELECT generate_kwargs
+                FROM provider_models
+                WHERE provider_id = ? AND model_id = ?
+                """,
+                String.class,
+                providerId,
+                "test-model"
+            )).isEqualTo("{\"temperature\":0.5}");
+
+            mockMvc.perform(put(
+                    "/api/models/{providerId}/models/{modelId}/visibility",
+                    providerId,
+                    "test-model"
+                )
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"hidden\":true}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.models[0].hidden")
+                    .value(true));
+
+            assertThat(jdbcTemplate.queryForObject(
+                """
+                SELECT hidden
+                FROM provider_models
+                WHERE provider_id = ? AND model_id = ?
+                """,
+                Boolean.class,
+                providerId,
+                "test-model"
+            )).isTrue();
+
+            // Majo does not add/remove models for built-in providers here.
+            mockMvc.perform(post(
+                    "/api/models/{providerId}/models",
+                    providerId
+                )
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    "{\"model_id\":\"another\",\"name\":\"Another\"}"
+                ))
+                .andExpect(status().isOk())
+                .andExpect(content().string("{}"));
+
+            mockMvc.perform(delete(
+                    "/api/models/{providerId}/models/{modelId}",
+                    providerId,
+                    "test-model"
+                ))
+                .andExpect(status().isOk())
+                .andExpect(content().string("{}"));
+
+            mockMvc.perform(put(
+                    "/api/models/{providerId}/models/{modelId}/config",
+                    providerId,
+                    "missing-model"
+                )
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{}"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.detail").value(
+                    "Model 'missing-model' not found in provider '"
+                        + providerId + "'"
+                ));
+        } finally {
+            jdbcTemplate.update(
+                "DELETE FROM providers WHERE id = ?",
+                providerId
+            );
+        }
+    }
+
+    @Test
+    void customProviderModelEndpointsUseSingleModelName()
+        throws Exception {
+        String name = "custom-" + java.util.UUID.randomUUID();
+
+        String response = mockMvc.perform(
+                post("/api/models/custom-providers")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(
+                        "{\"name\":\"" + name + "\"}"
+                    ))
+            .andExpect(status().isOk())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+
+        String providerId =
+            new com.fasterxml.jackson.databind.ObjectMapper()
+                .readTree(response)
+                .path("id")
+                .asText();
+
+        try {
+            mockMvc.perform(post(
+                    "/api/models/{providerId}/models",
+                    providerId
+                )
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"model_id\":\"custom-alpha\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.models[0].id")
+                    .value("custom-alpha"));
+
+            // Majo's frontend sends "id"; its backend ignores that field.
+            mockMvc.perform(post(
+                    "/api/models/{providerId}/models",
+                    providerId
+                )
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    "{\"id\":\"ignored-model\",\"name\":\"Ignored\"}"
+                ))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.models[0].id")
+                    .value("custom-alpha"));
+
+            mockMvc.perform(put(
+                    "/api/models/{providerId}/models/{modelId}/config",
+                    providerId,
+                    "custom-alpha"
+                )
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"model_name\":\"custom-beta\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.models[0].id")
+                    .value("custom-beta"));
+
+            mockMvc.perform(delete(
+                    "/api/models/{providerId}/models/{modelId}",
+                    providerId,
+                    "custom-beta"
+                ))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.models[0].id")
+                    .value("gpt-4o-mini"));
+
+            assertThat(jdbcTemplate.queryForObject(
+                "SELECT model_name FROM model_configs WHERE id = ?",
+                String.class,
+                Long.parseLong(providerId)
+            )).isEqualTo("gpt-4o-mini");
+        } finally {
+            jdbcTemplate.update(
+                "DELETE FROM model_configs WHERE id = ?",
+                Long.parseLong(providerId)
+            );
+        }
+    }
 }

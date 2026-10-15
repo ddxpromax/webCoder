@@ -447,4 +447,197 @@ public class ModelProviderController {
         );
         return result;
     }
+
+    @PutMapping("/models/{provider_id}/models/{model_id}/visibility")
+    public ResponseEntity<?> setModelVisibility(
+        @PathVariable("provider_id") String providerId,
+        @PathVariable("model_id") String modelId,
+        @RequestBody Map<String, Object> body
+    ) {
+        if (providerModelRepo.findByProviderIdAndModelId(
+            providerId, modelId
+        ).isEmpty()) {
+            return missingModel(providerId, modelId);
+        }
+
+        boolean hidden = Boolean.TRUE.equals(body.get("hidden"));
+        providerModelRepo.setHidden(providerId, modelId, hidden);
+
+        var provider = providerRepo.findFullById(providerId);
+        if (provider.isPresent()) {
+            return ResponseEntity.ok(
+                toProviderDto(provider.get())
+            );
+        }
+        return ResponseEntity.ok(Map.of("hidden", hidden));
+    }
+
+    @PostMapping("/models/{provider_id}/models")
+    public Object addModel(
+        @PathVariable("provider_id") String providerId,
+        @RequestBody Map<String, String> body
+    ) {
+        try {
+            long id = Long.parseLong(providerId);
+            var custom = modelConfigRepo.findFullById(id);
+
+            if (custom.isPresent()) {
+                String modelName = body.getOrDefault(
+                    "model_id",
+                    body.getOrDefault(
+                        "modelName",
+                        custom.get().modelName()
+                    )
+                );
+                modelConfigRepo.updateModelName(id, modelName);
+                return toCustomProviderDto(
+                    modelConfigRepo.findFullById(id).orElseThrow()
+                );
+            }
+        } catch (NumberFormatException ignored) {
+            // Majo returns {} for a nonnumeric provider id.
+        }
+
+        return Map.of();
+    }
+
+    @DeleteMapping("/models/{provider_id}/models/{model_id}")
+    public Object removeModel(
+        @PathVariable("provider_id") String providerId,
+        @PathVariable("model_id") String modelId
+    ) {
+        try {
+            long id = Long.parseLong(providerId);
+            if (modelConfigRepo.findFullById(id).isPresent()) {
+                // Majo resets the single custom model regardless of modelId.
+                modelConfigRepo.updateModelName(id, "gpt-4o-mini");
+                return toCustomProviderDto(
+                    modelConfigRepo.findFullById(id).orElseThrow()
+                );
+            }
+        } catch (NumberFormatException ignored) {
+            // Majo returns {} for a nonnumeric provider id.
+        }
+
+        return Map.of();
+    }
+
+    @PutMapping("/models/{provider_id}/models/{model_id}/config")
+    public ResponseEntity<?> configureModel(
+        @PathVariable("provider_id") String providerId,
+        @PathVariable("model_id") String modelId,
+        @RequestBody Map<String, Object> body
+    ) {
+        // Majo checks numeric custom-provider ids before built-in models.
+        try {
+            long id = Long.parseLong(providerId);
+            var custom = modelConfigRepo.findFullById(id);
+
+            if (custom.isPresent()) {
+                if (body.containsKey("model_name")
+                    || body.containsKey("model_id")) {
+                    String modelName = Objects.toString(
+                        body.getOrDefault(
+                            "model_name",
+                            body.get("model_id")
+                        ),
+                        custom.get().modelName()
+                    );
+                    modelConfigRepo.updateModelName(id, modelName);
+                }
+
+                return ResponseEntity.ok(
+                    toCustomProviderDto(
+                        modelConfigRepo.findFullById(id).orElseThrow()
+                    )
+                );
+            }
+        } catch (NumberFormatException ignored) {
+            // Continue with the built-in provider model lookup.
+        }
+
+        if (providerModelRepo.findByProviderIdAndModelId(
+            providerId, modelId
+        ).isEmpty()) {
+            return missingModel(providerId, modelId);
+        }
+
+        Map<String, Object> updates = new LinkedHashMap<>();
+
+        if (body.containsKey("max_tokens")) {
+            updates.put(
+                "max_tokens",
+                ((Number) body.get("max_tokens")).intValue()
+            );
+        }
+        if (body.containsKey("max_input_length")) {
+            updates.put(
+                "max_input_length",
+                ((Number) body.get("max_input_length")).intValue()
+            );
+        }
+        if (body.containsKey("generate_kwargs")) {
+            updates.put(
+                "generate_kwargs",
+                writeJson(body.get("generate_kwargs"))
+            );
+        }
+        if (body.containsKey("relay_reasoning")) {
+            updates.put(
+                "relay_reasoning",
+                Boolean.TRUE.equals(body.get("relay_reasoning"))
+            );
+        }
+        if (body.containsKey("thinking_enabled")) {
+            Object value = body.get("thinking_enabled");
+            updates.put(
+                "thinking_enabled",
+                value == null ? null : Boolean.TRUE.equals(value)
+            );
+        }
+        if (body.containsKey("thinking_budget")) {
+            Object value = body.get("thinking_budget");
+            updates.put(
+                "thinking_budget",
+                value == null ? null : ((Number) value).intValue()
+            );
+        }
+        if (body.containsKey("reasoning_effort")) {
+            Object value = body.get("reasoning_effort");
+            updates.put(
+                "reasoning_effort",
+                value == null ? null : String.valueOf(value)
+            );
+        }
+
+        providerModelRepo.updateConfig(providerId, modelId, updates);
+
+        var provider = providerRepo.findFullById(providerId);
+        if (provider.isPresent()) {
+            return ResponseEntity.ok(
+                toProviderDto(provider.get())
+            );
+        }
+        return ResponseEntity.ok(Map.of());
+    }
+
+    private ResponseEntity<?> missingModel(
+        String providerId,
+        String modelId
+    ) {
+        return ResponseEntity.status(404).body(Map.of(
+            "detail",
+            "Model '" + modelId
+                + "' not found in provider '"
+                + providerId + "'"
+        ));
+    }
+
+    private String writeJson(Object value) {
+        try {
+            return mapper.writeValueAsString(value);
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
 }
