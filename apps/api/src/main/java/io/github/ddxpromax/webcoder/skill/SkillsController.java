@@ -30,18 +30,20 @@ public class SkillsController {
     private final AgentStore agents;
     private final SkillZipImportService zipImport;
     private final SkillDependencyService dependencies;
+    private final SkillHubSearchService hubSearch;
     private final ObjectMapper mapper;
 
     public SkillsController(
         SkillWorkspaceService skills,
         AgentStore agents,
-        SkillZipImportService zipImport, SkillDependencyService dependencies,
+        SkillZipImportService zipImport, SkillDependencyService dependencies, SkillHubSearchService hubSearch,
         ObjectMapper mapper
     ) {
         this.skills = skills;
         this.agents = agents;
         this.zipImport = zipImport;
         this.dependencies = dependencies;
+        this.hubSearch = hubSearch;
         this.mapper = mapper;
     }
 
@@ -60,6 +62,11 @@ public class SkillsController {
     ) {
         skills.reconcile(workspace(agentId, request));
         return list(agentId, request);
+    }
+
+    @GetMapping({"/skills/hub/search", "/agents/{agentId}/skills/hub/search"})
+    public List<Map<String, Object>> searchHub(@PathVariable(required = false) String agentId, @RequestParam(defaultValue = "") String q, @RequestParam(defaultValue = "20") int limit) {
+        return hubSearch.search(q, limit);
     }
 
     @PostMapping({"/skills", "/agents/{agentId}/skills"})
