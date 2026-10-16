@@ -7,6 +7,8 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
+import java.util.StringJoiner;
+import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 
 @Repository
 public class ProviderModelRepository {
@@ -123,4 +125,138 @@ public class ProviderModelRepository {
         String thinkingBudgetRange,
         Boolean hidden
     ) {}
+
+    public Optional<DiscoveryRow> findDiscoveryRow(
+        String providerId,
+        String modelId
+    ) {
+        List<DiscoveryRow> rows = jdbc.query(
+            """
+            SELECT id, max_tokens, max_input_length,
+                   max_input_length_configured
+            FROM provider_models
+            WHERE provider_id = :providerId
+              AND model_id = :modelId
+            LIMIT 2
+            """,
+            Map.of("providerId", providerId, "modelId", modelId),
+            (rs, rowNum) -> new DiscoveryRow(
+                rs.getLong("id"),
+                rs.getInt("max_tokens"),
+                rs.getInt("max_input_length"),
+                rs.getBoolean("max_input_length_configured")
+            )
+        );
+        if (rows.size() > 1) {
+            throw new IllegalStateException(
+                "Duplicate model rows exist for this provider"
+            );
+        }
+        return rows.stream().findFirst();
+    }
+
+    public void saveDiscoveredModel(
+        String providerId,
+        String modelId,
+        String name,
+        Long existingRowId
+    ) {
+        if (existingRowId != null) {
+            jdbc.update(
+                """
+                UPDATE provider_models
+                SET name = :name, probe_source = 'openai-models'
+                WHERE id = :id
+                """,
+                Map.of("id", existingRowId, "name", name)
+            );
+            return;
+        }
+
+        jdbc.update(
+            """
+            INSERT INTO provider_models (
+                provider_id, model_id, name, probe_source,
+                max_tokens, max_input_length,
+                max_input_length_configured
+            ) VALUES (
+                :providerId, :modelId, :name, 'openai-models',
+                8192, 131072, FALSE
+            )
+            """,
+            Map.of(
+                "providerId", providerId,
+                "modelId", modelId,
+                "name", name
+            )
+        );
+    }
+
+    public record DiscoveryRow(
+        Long id,
+        Integer maxTokens,
+        Integer maxInputLength,
+        Boolean maxInputLengthConfigured
+    ) {}
+
+    public void setHidden(
+        String providerId,
+        String modelId,
+        boolean hidden
+    ) {
+        jdbc.update(
+            """
+            UPDATE provider_models
+            SET hidden = :hidden
+            WHERE provider_id = :providerId
+            AND model_id = :modelId
+            """,
+            new MapSqlParameterSource()
+                .addValue("providerId", providerId)
+                .addValue("modelId", modelId)
+                .addValue("hidden", hidden)
+        );
+    }
+
+    public void updateConfig(
+        String providerId,
+        String modelId,
+        Map<String, Object> updates
+    ) {
+        StringJoiner assignments = new StringJoiner(", ");
+        MapSqlParameterSource params = new MapSqlParameterSource()
+            .addValue("providerId", providerId)
+            .addValue("modelId", modelId);
+
+        // This fixed allowlist is the set of fields Majo updates.
+        for (String column : List.of(
+            "max_tokens",
+            "max_input_length",
+            "generate_kwargs",
+            "relay_reasoning",
+            "thinking_enabled",
+            "thinking_budget",
+            "reasoning_effort"
+        )) {
+            if (updates.containsKey(column)) {
+                assignments.add(column + " = :" + column);
+                params.addValue(column, updates.get(column));
+            }
+        }
+
+        if (updates.containsKey("max_input_length")) {
+            assignments.add("max_input_length_configured = TRUE");
+        }
+
+        if (assignments.length() == 0) {
+            return;
+        }
+
+        jdbc.update(
+            "UPDATE provider_models SET " + assignments
+                + " WHERE provider_id = :providerId"
+                + " AND model_id = :modelId",
+            params
+        );
+    }
 }

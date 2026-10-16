@@ -5,10 +5,10 @@ services:
     image: mysql:8.4
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: webcoder_root_dev
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-webcoder_root_dev}
       MYSQL_DATABASE: webcoder
       MYSQL_USER: webcoder
-      MYSQL_PASSWORD: webcoder_dev
+      MYSQL_PASSWORD: ${DB_PASSWORD:-webcoder_dev}
     command:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_0900_ai_ci
@@ -25,5 +25,56 @@ services:
       timeout: 3s
       retries: 20
 
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    command:
+      - redis-server
+      - --appendonly
+      - 'yes'
+      - --maxmemory
+      - 256mb
+      - --maxmemory-policy
+      - noeviction
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build:
+      context: ./apps/api
+    restart: unless-stopped
+    environment:
+      DB_URL: jdbc:mysql://mysql:3306/webcoder
+      DB_USERNAME: webcoder
+      DB_PASSWORD: ${DB_PASSWORD:-webcoder_dev}
+      REDIS_HOST: redis
+      REDIS_LOCKS_ENABLED: "true"
+      MAJO_WORKING_DIR: /data/majo
+    volumes:
+      - majo_data:/data/majo
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  web:
+    build:
+      context: ./apps/web
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8088:80"
+    depends_on:
+      - api
+
 volumes:
   mysql_data:
+  redis_data:
+  majo_data:

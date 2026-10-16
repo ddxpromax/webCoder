@@ -20,6 +20,8 @@ __pycache__/
 
 # Local runtime data
 .runtime/
+data/majo/
+apps/api/data/majo/
 
 # Local editor and OS files
 .idea/

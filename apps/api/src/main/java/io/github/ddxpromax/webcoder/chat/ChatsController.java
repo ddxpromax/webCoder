@@ -107,10 +107,9 @@ public class ChatsController {
             chatService.rename(id, name);
         }
         if (body.containsKey("pinned")) {
-            ChatEntity chat = chatService.getChat(id);
-            if (chat != null) {
-                chat.setPinned(Boolean.valueOf(body.get("pinned")));
-            }
+            chatService.setPinned(
+                id, Boolean.parseBoolean(body.get("pinned"))
+            );
         }
 
         ChatEntity chat = chatService.getChat(id);
