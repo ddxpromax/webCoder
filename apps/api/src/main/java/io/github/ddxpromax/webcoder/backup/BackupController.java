@@ -19,5 +19,6 @@ public class BackupController {
     @GetMapping("/backups/jobs/active") public Map<String,Object> active(){return backups.active();}
     @GetMapping("/backups/jobs/{id}") public ResponseEntity<?> job(@PathVariable String id){Map<String,Object> job=backups.job(id);return job==null?ResponseEntity.status(404).body(Map.of("detail","Backup job not found")):ResponseEntity.ok(job);}
     @PostMapping("/backups/jobs/{id}/cancel") public ResponseEntity<?> cancel(@PathVariable String id){Map<String,Object> job=backups.cancel(id);return job==null?ResponseEntity.status(404).body(Map.of("detail","Backup job not found")):ResponseEntity.ok(job);}
+    @PostMapping("/backups/{id}/restore") public ResponseEntity<?> restore(@PathVariable String id,@RequestBody Map<String,Object> body){try{List<String> ids=body.get("agent_ids") instanceof List<?> list?list.stream().map(String::valueOf).toList():List.of();return ResponseEntity.ok(backups.restore(id,ids));}catch(IllegalArgumentException e){return ResponseEntity.status(404).body(Map.of("detail",e.getMessage()));}catch(Exception e){return error(e);}}
     private ResponseEntity<Map<String,String>> error(Exception e){return ResponseEntity.internalServerError().body(Map.of("detail",e.getMessage()==null?"Backup operation failed":e.getMessage()));}
 }
