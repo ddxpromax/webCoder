@@ -174,6 +174,11 @@ public class SkillPoolService {
         String normalized = checkedName(name); if (!entries().containsKey(normalized)) return false;
         deleteTree(root.resolve(normalized)); entries().remove(normalized); save(); return true;
     }
+    public synchronized Map<String,Object> batchDelete(List<String> names) {
+        List<String> deleted=new ArrayList<>(), failed=new ArrayList<>();
+        for(String name:names==null?List.<String>of():names){try{if(delete(name))deleted.add(name);else failed.add(name);}catch(IllegalArgumentException exception){failed.add(name);}}
+        return Map.of("deleted",deleted,"failed",failed);
+    }
     public synchronized boolean tags(String name, List<String> tags) { reconcile(); return update(name, "tags", tags == null ? List.of() : tags); }
     public synchronized boolean config(String name, Map<String, Object> config) { reconcile(); return update(name, "config", config == null ? Map.of() : config); }
     public synchronized boolean autoUpdate(String name, boolean enabled, List<String> targets) {

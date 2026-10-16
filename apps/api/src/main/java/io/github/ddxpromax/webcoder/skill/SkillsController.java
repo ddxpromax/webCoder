@@ -165,6 +165,12 @@ public class SkillsController {
             text(body.get("version")), text(body.get("target_name")));
     }
 
+    @PostMapping({"/skills/pool/batch-delete", "/agents/{agentId}/skills/pool/batch-delete"})
+    public Map<String,Object> batchDeletePool(@PathVariable(required = false) String agentId,
+        @RequestBody Map<String,Object> body) {
+        return pool.batchDelete(stringList(body.get("skill_names")));
+    }
+
     @PostMapping({"/skills/pool/upload", "/agents/{agentId}/skills/pool/upload"})
     public Map<String, Object> uploadToPool(@PathVariable(required = false) String agentId,
         @RequestBody Map<String, Object> body, HttpServletRequest request) {

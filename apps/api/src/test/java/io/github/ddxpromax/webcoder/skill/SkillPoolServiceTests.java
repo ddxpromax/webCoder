@@ -58,4 +58,12 @@ class SkillPoolServiceTests {
 
         assertThat(result.get("imported")).isEqualTo(List.of("guidance-en"));
     }
+
+    @Test
+    void batchDeleteReportsMissingSkills() throws Exception {
+        var root = Files.createTempDirectory("majo-pool-test-"); var files = new JsonFileStore(new ObjectMapper());
+        var workspaceSkills = new SkillWorkspaceService(files); var pool = new SkillPoolService(new MajoWorkingDirectory(root.toString()), files, workspaceSkills, new SkillZipImportService(workspaceSkills));
+        pool.create("review", "---\nname: review\ndescription: Review\n---\nCheck.", null, null, null, "");
+        assertThat(pool.batchDelete(List.of("review", "absent"))).containsEntry("deleted", List.of("review")).containsEntry("failed", List.of("absent"));
+    }
 }
