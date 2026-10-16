@@ -130,6 +130,37 @@ class ChatPersistenceTests {
     }
 
     @Test
+    void inboxEventsUseIndexedMysqlStorageAndDeleteUnreferencedTrace()
+        throws Exception {
+        String runId = java.util.UUID.randomUUID().toString();
+        jdbcTemplate.update("""
+            INSERT INTO inbox_traces (run_id, agent_id, status, meta, events, created_at, updated_at)
+            VALUES (?, 'default', 'completed', JSON_OBJECT(), JSON_ARRAY(), UTC_TIMESTAMP(6), UTC_TIMESTAMP(6))
+            """, runId);
+        String eventId = java.util.UUID.randomUUID().toString();
+        jdbcTemplate.update("""
+            INSERT INTO inbox_events (id, agent_id, source_type, source_id, event_type, status,
+              severity, title, body, payload, is_read, created_at, updated_at)
+            VALUES (?, 'default', 'cron', ?, 'job_finished', 'completed', 'info', 'Scheduled job',
+              'Finished', JSON_OBJECT('run_id', ?), FALSE, UTC_TIMESTAMP(6), UTC_TIMESTAMP(6))
+            """, eventId, runId, runId);
+
+        mockMvc.perform(get("/api/console/inbox/events")
+                .param("agent_id", "default").param("unread_only", "true"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.events[?(@.id=='" + eventId + "')].payload.run_id")
+                .value(org.hamcrest.Matchers.contains(runId)));
+        mockMvc.perform(post("/api/console/inbox/read")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"event_ids\":[\"" + eventId + "\"]}"))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.updated").value(1));
+        mockMvc.perform(delete("/api/console/inbox/events/{id}", eventId))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.trace_deleted").value(true));
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM inbox_traces WHERE run_id = ?", Integer.class, runId))
+            .isZero();
+    }
+
+    @Test
     void agentSkillEndpointsPersistWorkspaceManifest() throws Exception {
         String skillName = "review_" + java.util.UUID.randomUUID()
             .toString().replace("-", "");
