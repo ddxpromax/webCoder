@@ -67,6 +67,13 @@ public class AgentStore {
         return config;
     }
 
+    /** Replace the persisted registry after a validated Majo backup restore. */
+    public synchronized void replaceConfig(Map<String, Object> config) {
+        Map<String, Object> copy = new LinkedHashMap<>(config);
+        copy.put("profiles", new LinkedHashMap<>(profiles(copy)));
+        files.writeAtomic(agentsFile, copy);
+    }
+
     public synchronized void updateRoot(
         String key,
         Object value
