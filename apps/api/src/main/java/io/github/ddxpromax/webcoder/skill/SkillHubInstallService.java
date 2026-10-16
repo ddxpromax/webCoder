@@ -27,6 +27,7 @@ import org.springframework.stereotype.Service;
 @Service
 public class SkillHubInstallService {
     private static final long MAX_BUNDLE_BYTES = 200L * 1024 * 1024;
+    private static final int MAX_PACKAGE_ENTRIES = 4_096;
     private static final String CLAWHUB = "https://clawhub.ai";
 
     private final SkillWorkspaceService skills;
@@ -185,7 +186,13 @@ public class SkillHubInstallService {
             path = String.join("/", java.util.Arrays.copyOfRange(parts, 4, parts.length));
             if (path.endsWith("/SKILL.md")) path = path.substring(0, path.length() - 9);
         }
-        if (ref == null || ref.isBlank()) ref = "main";
+        if (ref == null || ref.isBlank()) {
+            Map<String,Object> repository = object(new ObjectMapper().readValue(fetchText(
+                URI.create("https://api.github.com/repos/" + owner + "/" + repo), cancelled
+            ), new TypeReference<Object>() {}));
+            ref = text(repository.get("default_branch"));
+            if (ref.isBlank()) ref = "main";
+        }
         Map<String,Object> files = new LinkedHashMap<>();
         githubCollect(owner, repo, path, ref, "", files, cancelled);
         if (!files.containsKey("SKILL.md")) throw new IllegalStateException("GitHub skill directory is missing SKILL.md");
@@ -197,6 +204,9 @@ public class SkillHubInstallService {
                                String relative, Map<String,Object> files,
                                AtomicBoolean cancelled) throws IOException, InterruptedException {
         ensureNotCancelled(cancelled);
+        if (files.size() >= MAX_PACKAGE_ENTRIES) {
+            throw new IllegalArgumentException("GitHub skill package has too many files");
+        }
         String encoded = path.isBlank() ? "" : "/" + path.replace(" ", "%20");
         String endpoint = "https://api.github.com/repos/" + owner + "/" + repo + "/contents" + encoded + "?ref=" + URLEncoder.encode(ref, StandardCharsets.UTF_8);
         Object response = new ObjectMapper().readValue(fetchText(URI.create(endpoint), cancelled), new TypeReference<Object>() {});
@@ -207,7 +217,7 @@ public class SkillHubInstallService {
             files.put(name, fetchText(URI.create(text(entry.get("download_url"))), cancelled)); return;
         }
         if (!(response instanceof Iterable<?> entries)) throw new IllegalStateException("Unexpected GitHub skill response");
-        for (Object raw : entries) { Map<String,Object> entry=asMap(raw); String name=text(entry.get("name")); String child=relative.isBlank()?name:relative+"/"+name; if("dir".equals(text(entry.get("type")))) githubCollect(owner,repo,text(entry.get("path")),ref,child,files,cancelled); else if("file".equals(text(entry.get("type")))) files.put(child,fetchText(URI.create(text(entry.get("download_url"))),cancelled)); }
+        for (Object raw : entries) { Map<String,Object> entry=asMap(raw); String name=text(entry.get("name")); String child=relative.isBlank()?name:relative+"/"+name; if("dir".equals(text(entry.get("type")))) githubCollect(owner,repo,text(entry.get("path")),ref,child,files,cancelled); else if("file".equals(text(entry.get("type")))) { if(files.size()>=MAX_PACKAGE_ENTRIES)throw new IllegalArgumentException("GitHub skill package has too many files"); files.put(child,fetchText(URI.create(text(entry.get("download_url"))),cancelled)); } }
     }
 
     private Bundle resolveClawHub(
