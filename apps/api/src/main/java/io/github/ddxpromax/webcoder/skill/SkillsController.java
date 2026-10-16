@@ -33,6 +33,7 @@ public class SkillsController {
     private final SkillHubSearchService hubSearch;
     private final SkillHubInstallService hubInstall;
     private final SkillPoolService pool;
+    private final BuiltinSkillService builtins;
     private final ObjectMapper mapper;
 
     public SkillsController(
@@ -40,7 +41,7 @@ public class SkillsController {
         AgentStore agents,
         SkillZipImportService zipImport, SkillDependencyService dependencies,
         SkillHubSearchService hubSearch, SkillHubInstallService hubInstall,
-        SkillPoolService pool,
+        SkillPoolService pool, BuiltinSkillService builtins,
         ObjectMapper mapper
     ) {
         this.skills = skills;
@@ -50,6 +51,7 @@ public class SkillsController {
         this.hubSearch = hubSearch;
         this.hubInstall = hubInstall;
         this.pool = pool;
+        this.builtins = builtins;
         this.mapper = mapper;
     }
 
@@ -119,6 +121,14 @@ public class SkillsController {
 
     @PostMapping({"/skills/pool/refresh", "/agents/{agentId}/skills/pool/refresh"})
     public List<Map<String, Object>> refreshPool(@PathVariable(required = false) String agentId) { return pool.list(); }
+
+    @GetMapping({"/skills/pool/builtin-sources", "/agents/{agentId}/skills/pool/builtin-sources"})
+    public List<Map<String,Object>> builtinSources(@PathVariable(required = false) String agentId) { return builtins.candidates(); }
+
+    @PostMapping({"/skills/pool/import-builtin", "/agents/{agentId}/skills/pool/import-builtin"})
+    public Map<String,Object> importBuiltins(@PathVariable(required = false) String agentId, @RequestBody Map<String,Object> body) {
+        return builtins.importSkills(stringList(body.get("skill_names")), Boolean.TRUE.equals(body.get("overwrite_conflicts")));
+    }
 
     @PostMapping({"/skills/pool/create", "/agents/{agentId}/skills/pool/create"})
     public Map<String, Object> createPool(@PathVariable(required = false) String agentId, @RequestBody Map<String, Object> body) {
