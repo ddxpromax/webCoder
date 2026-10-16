@@ -170,8 +170,25 @@ public class SkillHubInstallService {
         if (host.equals("github.com") || host.equals("www.github.com")) {
             return resolveGitHub(uri, version, cancelled);
         }
+        if (host.equals("lobehub.com") || host.equals("www.lobehub.com") || host.equals("market.lobehub.com")) {
+            return resolveLobeHub(uri, version, cancelled);
+        }
         ensureNotCancelled(cancelled);
         return parseBundle(fetchText(uri, cancelled), bundleUrl, "hub");
+    }
+
+    private Bundle resolveLobeHub(URI source, String version, AtomicBoolean cancelled)
+        throws IOException, InterruptedException {
+        String path=source.getPath().replaceAll("/+$",""); String id=path.substring(path.lastIndexOf('/')+1);
+        if(id.isBlank())throw new IllegalArgumentException("Invalid LobeHub skill URL");
+        String url="https://market.lobehub.com/api/v1/skills/"+URLEncoder.encode(id,StandardCharsets.UTF_8)+"/download";
+        if(version!=null&&!version.isBlank())url+="?version="+URLEncoder.encode(version,StandardCharsets.UTF_8);
+        Map<String,Object> files=new LinkedHashMap<>();
+        try(java.util.zip.ZipInputStream zip=new java.util.zip.ZipInputStream(new java.io.ByteArrayInputStream(fetchBytes(URI.create(url),cancelled)))){
+            java.util.zip.ZipEntry entry; while((entry=zip.getNextEntry())!=null){ensureNotCancelled(cancelled);if(entry.isDirectory())continue;if(files.size()>=MAX_PACKAGE_ENTRIES)throw new IllegalArgumentException("LobeHub skill package has too many files");String name=entry.getName().replace('\\','/');if(name.startsWith("/")||name.contains("../"))throw new IllegalArgumentException("Unsafe path in LobeHub package");byte[] bytes=readLimited(zip,cancelled);if(!isText(bytes))continue;files.put(name,new String(bytes,StandardCharsets.UTF_8));}
+        }
+        if(!files.containsKey("SKILL.md"))throw new IllegalStateException("LobeHub skill package is missing SKILL.md");
+        return fromFiles(id,files,url,"lobehub");
     }
 
     private Bundle resolveGitHub(URI source, String requestedVersion,
@@ -295,10 +312,12 @@ public class SkillHubInstallService {
                 "Skill Hub returned HTTP " + response.statusCode()
             );
         }
-        try (InputStream input = response.body()) {
-            byte[] bytes = readLimited(input, cancelled);
-            return new String(bytes, StandardCharsets.UTF_8);
-        }
+        try (InputStream input = response.body()) { return new String(readLimited(input, cancelled), StandardCharsets.UTF_8); }
+    }
+
+    private byte[] fetchBytes(URI uri, AtomicBoolean cancelled) throws IOException, InterruptedException {
+        ensureNotCancelled(cancelled); HttpResponse<InputStream> response=http.send(HttpRequest.newBuilder(uri).timeout(Duration.ofSeconds(30)).GET().build(),HttpResponse.BodyHandlers.ofInputStream());
+        if(response.statusCode()>=400)throw new IllegalStateException("Skill Hub returned HTTP "+response.statusCode()); try(InputStream input=response.body()){return readLimited(input,cancelled);}
     }
 
     private static byte[] readLimited(
@@ -320,6 +339,8 @@ public class SkillHubInstallService {
             return output.toByteArray();
         }
     }
+
+    private static boolean isText(byte[] bytes){for(byte value:bytes)if(value==0)return false;return true;}
 
     static Bundle parseBundle(String json, String sourceUrl, String origin)
         throws IOException {
