@@ -184,6 +184,9 @@ a {
 .channel-access-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-top: 1px solid #303030; padding: 9px 0; font-size: 12px; }
 .channel-access-row span { min-width: 0; display: grid; gap: 3px; }
 .channel-access-row small { color: #999; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 440px; }
+.skill-dependencies { border-top: 1px solid #353535; margin-top: 4px; padding-top: 12px; }
+.skill-dependencies h3 { font-size: 13px; margin: 0 0 8px; }
+.skill-dependencies ul { margin: 0; padding: 9px 12px 9px 28px; }
 .main-panel {
   flex: 1;
   min-width: 0;

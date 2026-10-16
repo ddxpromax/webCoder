@@ -15,6 +15,7 @@ interface SkillSpec {
   tags: string[]
   last_updated: string
 }
+interface SkillDependencies { requirements: { bins: string[]; env: string[]; mcp: string[] }; missing_dependencies: string[]; dependencies_met: boolean }
 
 const skills = ref<SkillSpec[]>([])
 const selectedName = ref('')
@@ -34,6 +35,8 @@ const marketOpen = ref(false)
 const marketQuery = ref('')
 const marketLoading = ref(false)
 const marketResults = ref<Array<{ slug: string; name: string; description: string | null; agent_id: string }>>([])
+const dependencies = ref<SkillDependencies | null>(null)
+const dependencyLoading = ref(false)
 
 const base = computed(() => `/agents/${encodeURIComponent(workbench.agentId)}/skills`)
 const selected = computed(() => skills.value.find((skill) => skill.name === selectedName.value))
@@ -54,6 +57,15 @@ function select(skill: SkillSpec) {
   draftPreload.value = skill.preload
   error.value = ''
   notice.value = ''
+  void loadDependencies(skill.name)
+}
+
+async function loadDependencies(name: string) {
+  dependencyLoading.value = true
+  dependencies.value = null
+  try { dependencies.value = await apiRequest<SkillDependencies>(`${base.value}/${encodeURIComponent(name)}/dependencies`, {}, workbench.agentId) }
+  catch { dependencies.value = null }
+  finally { dependencyLoading.value = false }
 }
 
 async function refresh(preferredName?: string) {
@@ -272,6 +284,15 @@ onMounted(() => void refresh())
         <label>SKILL.md <textarea v-model="draftContent" spellcheck="false" rows="18" /></label>
         <label>Tags <input v-model="draftTags" placeholder="Comma-separated" /></label>
         <label class="skills-checkbox"><input v-model="draftPreload" type="checkbox" /> Preload full content</label>
+        <section v-if="selected" class="skill-dependencies">
+          <h3>Runtime dependencies</h3>
+          <p v-if="dependencyLoading" class="muted">Checking dependencies…</p>
+          <template v-else-if="dependencies">
+            <p v-if="dependencies.dependencies_met" class="success-notice">All declared dependencies are available.</p>
+            <ul v-else class="inline-error"><li v-for="item in dependencies.missing_dependencies" :key="item">{{ item }}</li></ul>
+            <p v-if="!dependencies.requirements.bins.length && !dependencies.requirements.env.length && !dependencies.requirements.mcp.length" class="muted">This skill declares no runtime dependencies.</p>
+          </template>
+        </section>
         <div class="skills-editor-actions">
           <button type="submit" class="primary" :disabled="saving">{{ saving ? 'Saving…' : 'Save skill' }}</button>
           <button v-if="selected && !selected.enabled" type="button" @click="remove">Delete</button>
