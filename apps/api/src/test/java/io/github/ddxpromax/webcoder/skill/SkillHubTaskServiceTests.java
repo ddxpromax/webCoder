@@ -38,4 +38,17 @@ class SkillHubTaskServiceTests {
             task.taskId(), "importing", null, null
         )).isInstanceOf(IllegalArgumentException.class);
     }
+
+    @Test
+    void cancellationCannotBeOverwrittenByCompletion() {
+        var service = new SkillHubTaskService();
+        var task = service.create("https://example.test/bundle", "", true);
+
+        service.cancel(task.taskId());
+        service.finish(task.taskId(), "completed", null, Map.of("count", 1));
+
+        assertThat(service.get(task.taskId()).status()).isEqualTo("cancelled");
+        service.finish(task.taskId(), "cancelled", null, Map.of("count", 0));
+        assertThat(service.get(task.taskId()).result()).containsEntry("count", 0);
+    }
 }

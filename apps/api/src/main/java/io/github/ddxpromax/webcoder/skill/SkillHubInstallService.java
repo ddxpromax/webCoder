@@ -1,0 +1,416 @@
+package io.github.ddxpromax.webcoder.skill;
+
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.URI;
+import java.net.URLEncoder;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
+import java.time.Duration;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
+import org.springframework.stereotype.Service;
+
+/**
+ * Background installer for the direct JSON and ClawHub bundle formats used by
+ * Majo. Workspace creation remains in {@link SkillWorkspaceService}, so its
+ * path validation and security scan also protect Hub imports.
+ */
+@Service
+public class SkillHubInstallService {
+    private static final long MAX_BUNDLE_BYTES = 200L * 1024 * 1024;
+    private static final String CLAWHUB = "https://clawhub.ai";
+
+    private final SkillWorkspaceService skills;
+    private final SkillHubTaskService tasks;
+    private final HttpClient http = HttpClient.newBuilder()
+        .connectTimeout(Duration.ofSeconds(10))
+        .followRedirects(HttpClient.Redirect.NORMAL)
+        .build();
+    private final ExecutorService workers = Executors.newCachedThreadPool(
+        runnable -> {
+            Thread thread = new Thread(runnable, "majo-skill-hub");
+            thread.setDaemon(true);
+            return thread;
+        }
+    );
+
+    public SkillHubInstallService(
+        SkillWorkspaceService skills,
+        SkillHubTaskService tasks
+    ) {
+        this.skills = skills;
+        this.tasks = tasks;
+    }
+
+    public SkillHubTaskService.Task start(
+        Path workspace,
+        String bundleUrl,
+        String version,
+        boolean enable,
+        String targetName
+    ) {
+        validateUrl(bundleUrl);
+        SkillHubTaskService.Task task = tasks.create(
+            bundleUrl, version, enable
+        );
+        workers.execute(() -> install(
+            task.taskId(), workspace, targetName == null ? "" : targetName
+        ));
+        return task;
+    }
+
+    public SkillHubTaskService.Task status(String taskId) {
+        return tasks.get(taskId);
+    }
+
+    public String cancel(String taskId) {
+        return tasks.cancel(taskId);
+    }
+
+    private void install(String taskId, Path workspace, String targetName) {
+        String createdName = null;
+        AtomicBoolean cancelled = tasks.cancellation(taskId);
+        try {
+            tasks.importing(taskId);
+            Bundle bundle = resolve(
+                tasks.get(taskId).bundleUrl(), tasks.get(taskId).version(),
+                cancelled
+            );
+            ensureNotCancelled(cancelled);
+            String name = targetName.isBlank() ? bundle.name() : targetName;
+            Map<String, Object> created = skills.create(
+                workspace, name, bundle.content(), bundle.references(),
+                bundle.scripts(), bundle.extraFiles(), null,
+                tasks.get(taskId).enable()
+            );
+            if (!Boolean.TRUE.equals(created.get("success"))) {
+                throw new IllegalStateException("A skill with this name already exists");
+            }
+            createdName = String.valueOf(created.get("name"));
+            skills.setInstalledFrom(workspace, createdName, bundle.installedFrom());
+            if (cancelled.get()) {
+                cleanup(workspace, createdName);
+                tasks.finish(taskId, "cancelled", null, Map.of(
+                    "installed", false, "name", createdName,
+                    "enabled", false, "source_url", bundle.sourceUrl(),
+                    "installed_from", bundle.installedFrom()
+                ));
+                return;
+            }
+            tasks.finish(taskId, "completed", null, Map.of(
+                "installed", true, "name", createdName,
+                "enabled", tasks.get(taskId).enable(),
+                "source_url", bundle.sourceUrl(),
+                "installed_from", bundle.installedFrom()
+            ));
+        } catch (InstallCancelledException exception) {
+            if (createdName != null) {
+                cleanup(workspace, createdName);
+            }
+            tasks.finish(taskId, "cancelled", null, null);
+        } catch (Exception exception) {
+            tasks.finish(taskId, "failed", exception.getMessage(), null);
+        }
+    }
+
+    private Bundle resolve(
+        String bundleUrl,
+        String version,
+        AtomicBoolean cancelled
+    ) throws IOException, InterruptedException {
+        URI uri = URI.create(bundleUrl);
+        String host = uri.getHost().toLowerCase();
+        if (host.equals("clawhub.ai") || host.equals("www.clawhub.ai")) {
+            return resolveClawHub(uri, version, cancelled);
+        }
+        ensureNotCancelled(cancelled);
+        return parseBundle(fetchText(uri, cancelled), bundleUrl, "hub");
+    }
+
+    private Bundle resolveClawHub(
+        URI source,
+        String requestedVersion,
+        AtomicBoolean cancelled
+    ) throws IOException, InterruptedException {
+        String path = source.getPath().replaceAll("/+$", "");
+        String slug = path.substring(path.lastIndexOf('/') + 1);
+        if (slug.isBlank() || !slug.matches("[A-Za-z0-9_-]+")) {
+            throw new IllegalArgumentException("Invalid ClawHub skill URL");
+        }
+        String detailUrl = CLAWHUB + "/api/v1/skills/" + slug;
+        Map<String, Object> detail = object(fetchText(
+            URI.create(detailUrl), cancelled
+        ));
+        Map<String, Object> skill = asMap(detail.get("skill"));
+        String actualSlug = text(skill.get("slug"));
+        if (actualSlug.isBlank()) {
+            actualSlug = slug;
+        }
+        Map<String, Object> current = asMap(detail.get("version"));
+        String version = requestedVersion == null || requestedVersion.isBlank()
+            ? text(current.get("version")) : requestedVersion;
+        Map<String, Object> files = new LinkedHashMap<>();
+        Object rawFiles = current.get("files");
+        if (rawFiles instanceof Iterable<?> entries) {
+            for (Object entry : entries) {
+                ensureNotCancelled(cancelled);
+                String file = text(asMap(entry).get("path"));
+                if (file.isBlank()) {
+                    continue;
+                }
+                String fileUrl = CLAWHUB + "/api/v1/skills/"
+                    + actualSlug + "/file?path=" + URLEncoder.encode(
+                        file, StandardCharsets.UTF_8
+                    );
+                if (!version.isBlank()) {
+                    fileUrl += "&version=" + URLEncoder.encode(
+                        version, StandardCharsets.UTF_8
+                    );
+                }
+                files.put(file, fetchText(URI.create(fileUrl), cancelled));
+            }
+        }
+        if (files.isEmpty()) {
+            String content = text(detail.get("content"));
+            if (content.isBlank()) {
+                content = text(detail.get("skill_md"));
+            }
+            if (!content.isBlank()) {
+                files.put("SKILL.md", content);
+            }
+        }
+        if (!files.containsKey("SKILL.md")) {
+            throw new IllegalStateException("ClawHub bundle is missing SKILL.md");
+        }
+        String name = text(skill.get("displayName"));
+        return fromFiles(name.isBlank() ? actualSlug : name, files,
+            detailUrl, "clawhub");
+    }
+
+    private String fetchText(URI uri, AtomicBoolean cancelled)
+        throws IOException, InterruptedException {
+        ensureNotCancelled(cancelled);
+        HttpRequest request = HttpRequest.newBuilder(uri)
+            .timeout(Duration.ofSeconds(30))
+            .GET()
+            .build();
+        HttpResponse<InputStream> response = http.send(
+            request, HttpResponse.BodyHandlers.ofInputStream()
+        );
+        if (response.statusCode() >= 400) {
+            throw new IllegalStateException(
+                "Skill Hub returned HTTP " + response.statusCode()
+            );
+        }
+        try (InputStream input = response.body()) {
+            byte[] bytes = readLimited(input, cancelled);
+            return new String(bytes, StandardCharsets.UTF_8);
+        }
+    }
+
+    private static byte[] readLimited(
+        InputStream input,
+        AtomicBoolean cancelled
+    ) throws IOException {
+        try (var output = new java.io.ByteArrayOutputStream()) {
+            byte[] buffer = new byte[8192];
+            int size;
+            while ((size = input.read(buffer)) != -1) {
+                ensureNotCancelled(cancelled);
+                if (output.size() + size > MAX_BUNDLE_BYTES) {
+                    throw new IllegalArgumentException(
+                        "Hub bundle exceeds 200 MB"
+                    );
+                }
+                output.write(buffer, 0, size);
+            }
+            return output.toByteArray();
+        }
+    }
+
+    static Bundle parseBundle(String json, String sourceUrl, String origin)
+        throws IOException {
+        ObjectMapper mapper = new ObjectMapper();
+        Map<String, Object> payload = object(mapper.readValue(
+            json, new TypeReference<Object>() {}
+        ));
+        Map<String, Object> nested = asMap(payload.get("skill"));
+        if (!hasContent(payload) && hasContent(nested)) {
+            payload = nested;
+        }
+        String content = firstText(payload, "content", "skill_md", "skillMd");
+        Map<String, Object> files = asMap(payload.get("files"));
+        if (content.isBlank()) {
+            content = text(files.get("SKILL.md"));
+        }
+        if (content.isBlank()) {
+            throw new IllegalArgumentException("Hub bundle missing SKILL.md content");
+        }
+        String name = text(payload.get("name"));
+        if (name.isBlank()) {
+            name = text(SkillWorkspaceService.parseFrontmatter(content).get("name"));
+        }
+        if (name.isBlank()) {
+            throw new IllegalArgumentException("Hub bundle missing skill name");
+        }
+        Map<String, Object> references = tree(payload.get("references"));
+        Map<String, Object> scripts = tree(payload.get("scripts"));
+        Map<String, Object> extra = new LinkedHashMap<>();
+        for (Map.Entry<String, Object> entry : files.entrySet()) {
+            if (!(entry.getValue() instanceof String value)
+                || entry.getKey().equals("SKILL.md")) {
+                continue;
+            }
+            if (entry.getKey().startsWith("references/")) {
+                insert(references, entry.getKey().substring(11), value);
+            } else if (entry.getKey().startsWith("scripts/")) {
+                insert(scripts, entry.getKey().substring(8), value);
+            } else {
+                insert(extra, entry.getKey(), value);
+            }
+        }
+        return new Bundle(name, content, references, scripts, extra,
+            sourceUrl, origin);
+    }
+
+    private static Bundle fromFiles(
+        String fallbackName,
+        Map<String, Object> files,
+        String sourceUrl,
+        String origin
+    ) {
+        String content = text(files.get("SKILL.md"));
+        String name = text(SkillWorkspaceService.parseFrontmatter(content).get("name"));
+        if (name.isBlank()) {
+            name = fallbackName;
+        }
+        Map<String, Object> references = new LinkedHashMap<>();
+        Map<String, Object> scripts = new LinkedHashMap<>();
+        Map<String, Object> extra = new LinkedHashMap<>();
+        for (Map.Entry<String, Object> entry : files.entrySet()) {
+            if (entry.getKey().equals("SKILL.md")) {
+                continue;
+            }
+            String file = entry.getKey();
+            if (file.startsWith("references/")) {
+                insert(references, file.substring(11), entry.getValue());
+            } else if (file.startsWith("scripts/")) {
+                insert(scripts, file.substring(8), entry.getValue());
+            } else {
+                insert(extra, file, entry.getValue());
+            }
+        }
+        return new Bundle(name, content, references, scripts, extra,
+            sourceUrl, origin);
+    }
+
+    private static void insert(
+        Map<String, Object> root,
+        String path,
+        Object value
+    ) {
+        String[] parts = path.split("/");
+        Map<String, Object> current = root;
+        for (int index = 0; index < parts.length; index++) {
+            String part = parts[index];
+            if (part.isBlank() || part.equals(".") || part.equals("..")) {
+                throw new IllegalArgumentException("Unsafe path in Hub bundle");
+            }
+            if (index == parts.length - 1) {
+                current.put(part, value);
+            } else {
+                current = asMap(current.computeIfAbsent(
+                    part, ignored -> new LinkedHashMap<String, Object>()
+                ));
+            }
+        }
+    }
+
+    private static Map<String, Object> tree(Object source) {
+        if (!(source instanceof Map<?, ?>)) {
+            return new LinkedHashMap<>();
+        }
+        return asMap(source);
+    }
+
+    private static boolean hasContent(Map<String, Object> source) {
+        return !firstText(source, "content", "skill_md", "skillMd").isBlank()
+            || !text(asMap(source.get("files")).get("SKILL.md")).isBlank();
+    }
+
+    private static Map<String, Object> object(Object source) {
+        if (!(source instanceof Map<?, ?>)) {
+            throw new IllegalArgumentException("Hub bundle is not a JSON object");
+        }
+        return asMap(source);
+    }
+
+    private static Map<String, Object> asMap(Object source) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        if (source instanceof Map<?, ?> map) {
+            map.forEach((key, value) -> result.put(String.valueOf(key), value));
+        }
+        return result;
+    }
+
+    private static String firstText(Map<String, Object> source, String... keys) {
+        for (String key : keys) {
+            String value = text(source.get(key));
+            if (!value.isBlank()) {
+                return value;
+            }
+        }
+        return "";
+    }
+
+    private static String text(Object value) {
+        return value == null ? "" : String.valueOf(value).trim();
+    }
+
+    private static void validateUrl(String value) {
+        try {
+            URI uri = URI.create(value);
+            if (!"http".equalsIgnoreCase(uri.getScheme())
+                && !"https".equalsIgnoreCase(uri.getScheme())) {
+                throw new IllegalArgumentException();
+            }
+        } catch (Exception exception) {
+            throw new IllegalArgumentException(
+                "bundle_url must be a valid http(s) URL"
+            );
+        }
+    }
+
+    private static void ensureNotCancelled(AtomicBoolean cancelled) {
+        if (cancelled.get()) {
+            throw new InstallCancelledException();
+        }
+    }
+
+    record Bundle(
+        String name,
+        String content,
+        Map<String, Object> references,
+        Map<String, Object> scripts,
+        Map<String, Object> extraFiles,
+        String sourceUrl,
+        String installedFrom
+    ) {}
+
+    private static final class InstallCancelledException
+        extends RuntimeException {}
+
+    private void cleanup(Path workspace, String name) {
+        skills.setEnabled(workspace, name, false);
+        skills.delete(workspace, name);
+    }
+}

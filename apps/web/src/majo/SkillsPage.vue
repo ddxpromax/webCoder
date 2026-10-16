@@ -16,6 +16,7 @@ interface SkillSpec {
   last_updated: string
 }
 interface SkillDependencies { requirements: { bins: string[]; env: string[]; mcp: string[] }; missing_dependencies: string[]; dependencies_met: boolean }
+interface HubInstallTask { task_id: string; status: string; error: string | null; result: { installed?: boolean; name?: string } | null }
 
 const skills = ref<SkillSpec[]>([])
 const selectedName = ref('')
@@ -35,6 +36,8 @@ const marketOpen = ref(false)
 const marketQuery = ref('')
 const marketLoading = ref(false)
 const marketResults = ref<Array<{ slug: string; name: string; description: string | null; version: string; source_url: string }>>([])
+const marketTaskId = ref('')
+const marketInstallName = ref('')
 const dependencies = ref<SkillDependencies | null>(null)
 const dependencyLoading = ref(false)
 
@@ -215,8 +218,59 @@ async function searchMarket() {
   }
 }
 
-function openMarketSkill(result: { source_url: string }) {
-  window.open(result.source_url, '_blank', 'noopener,noreferrer')
+async function installMarketSkill(result: { name: string; source_url: string }) {
+  if (marketTaskId.value) return
+  error.value = ''
+  notice.value = ''
+  marketInstallName.value = result.name
+  try {
+    const task = await apiRequest<HubInstallTask>(`${base.value}/hub/install/start`, {
+      method: 'POST', body: JSON.stringify({ bundle_url: result.source_url, enable: true }),
+    }, workbench.agentId)
+    marketTaskId.value = task.task_id
+    void pollMarketInstall()
+  } catch (cause) {
+    marketInstallName.value = ''
+    error.value = cause instanceof Error ? cause.message : 'Could not start skill installation.'
+  }
+}
+
+async function pollMarketInstall() {
+  if (!marketTaskId.value) return
+  let stillRunning = false
+  try {
+    const task = await apiRequest<HubInstallTask>(`${base.value}/hub/install/status/${encodeURIComponent(marketTaskId.value)}`, {}, workbench.agentId)
+    if (task.status === 'pending' || task.status === 'importing') {
+      stillRunning = true
+      window.setTimeout(() => void pollMarketInstall(), 500)
+      return
+    }
+    if (task.status === 'completed' && task.result?.name) {
+      await refresh(task.result.name)
+      notice.value = `Installed ${task.result.name}.`
+    } else if (task.status !== 'cancelled') {
+      error.value = task.error || 'Could not install skill.'
+    }
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : 'Could not read installation status.'
+  } finally {
+    if (!stillRunning) {
+      marketTaskId.value = ''
+      marketInstallName.value = ''
+    }
+  }
+}
+
+async function cancelMarketInstall() {
+  if (!marketTaskId.value) return
+  try {
+    await apiRequest(`${base.value}/hub/install/cancel/${encodeURIComponent(marketTaskId.value)}`, { method: 'POST' }, workbench.agentId)
+    marketTaskId.value = ''
+    marketInstallName.value = ''
+    notice.value = 'Installation cancelled.'
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : 'Could not cancel installation.'
+  }
 }
 
 watch(() => workbench.agentId, () => {
@@ -246,11 +300,15 @@ onMounted(() => void refresh())
         <input v-model="marketQuery" aria-label="Search skill market" placeholder="Search skills" />
         <button type="submit" :disabled="marketLoading">{{ marketLoading ? 'Searching…' : 'Search' }}</button>
       </form>
+      <p v-if="marketTaskId" class="muted">
+        Installing {{ marketInstallName }}…
+        <button type="button" @click="cancelMarketInstall">Cancel</button>
+      </p>
       <p v-if="!marketLoading && !marketResults.length" class="muted">Search published skills by name or description.</p>
-      <button v-for="result in marketResults" :key="result.slug" class="skills-item" @click="openMarketSkill(result)">
+      <div v-for="result in marketResults" :key="result.slug" class="skills-item">
         <span><strong>{{ result.name }}</strong><small>{{ result.description || 'No description' }}<template v-if="result.version"> · {{ result.version }}</template></small></span>
-        <em>Open</em>
-      </button>
+        <button type="button" :disabled="Boolean(marketTaskId)" @click="installMarketSkill(result)">Install</button>
+      </div>
     </section>
     <div class="skills-grid">
       <div class="settings-card skills-list">

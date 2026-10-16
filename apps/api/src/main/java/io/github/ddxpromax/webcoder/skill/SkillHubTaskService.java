@@ -81,7 +81,8 @@ public class SkillHubTaskService {
             throw new IllegalArgumentException("Invalid terminal task status");
         }
         Task task = get(taskId);
-        if (!task.terminal()) {
+        if (!task.terminal() || ("cancelled".equals(task.status())
+            && "cancelled".equals(status))) {
             task.finish(status, error, result, now());
         }
         cleanup();

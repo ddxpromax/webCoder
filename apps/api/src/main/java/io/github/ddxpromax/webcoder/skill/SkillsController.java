@@ -31,12 +31,14 @@ public class SkillsController {
     private final SkillZipImportService zipImport;
     private final SkillDependencyService dependencies;
     private final SkillHubSearchService hubSearch;
+    private final SkillHubInstallService hubInstall;
     private final ObjectMapper mapper;
 
     public SkillsController(
         SkillWorkspaceService skills,
         AgentStore agents,
-        SkillZipImportService zipImport, SkillDependencyService dependencies, SkillHubSearchService hubSearch,
+        SkillZipImportService zipImport, SkillDependencyService dependencies,
+        SkillHubSearchService hubSearch, SkillHubInstallService hubInstall,
         ObjectMapper mapper
     ) {
         this.skills = skills;
@@ -44,6 +46,7 @@ public class SkillsController {
         this.zipImport = zipImport;
         this.dependencies = dependencies;
         this.hubSearch = hubSearch;
+        this.hubInstall = hubInstall;
         this.mapper = mapper;
     }
 
@@ -67,6 +70,45 @@ public class SkillsController {
     @GetMapping({"/skills/hub/search", "/agents/{agentId}/skills/hub/search"})
     public List<Map<String, Object>> searchHub(@PathVariable(required = false) String agentId, @RequestParam(defaultValue = "") String q, @RequestParam(defaultValue = "20") int limit) {
         return hubSearch.search(q, limit);
+    }
+
+    @PostMapping({
+        "/skills/hub/install/start",
+        "/agents/{agentId}/skills/hub/install/start"
+    })
+    public Map<String, Object> startHubInstall(
+        @PathVariable(required = false) String agentId,
+        @RequestBody Map<String, Object> body,
+        HttpServletRequest request
+    ) {
+        var task = hubInstall.start(
+            workspace(agentId, request), text(body.get("bundle_url")),
+            text(body.get("version")), Boolean.TRUE.equals(body.get("enable")),
+            text(body.get("target_name"))
+        );
+        return task(task);
+    }
+
+    @GetMapping({
+        "/skills/hub/install/status/{taskId}",
+        "/agents/{agentId}/skills/hub/install/status/{taskId}"
+    })
+    public Map<String, Object> hubInstallStatus(
+        @PathVariable(required = false) String agentId,
+        @PathVariable String taskId
+    ) {
+        return task(hubInstall.status(taskId));
+    }
+
+    @PostMapping({
+        "/skills/hub/install/cancel/{taskId}",
+        "/agents/{agentId}/skills/hub/install/cancel/{taskId}"
+    })
+    public Map<String, Object> cancelHubInstall(
+        @PathVariable(required = false) String agentId,
+        @PathVariable String taskId
+    ) {
+        return Map.of("task_id", taskId, "status", hubInstall.cancel(taskId));
     }
 
     @PostMapping({"/skills", "/agents/{agentId}/skills"})
@@ -374,6 +416,20 @@ public class SkillsController {
             String.valueOf(key), value
         ));
         return result;
+    }
+
+    private static Map<String, Object> task(SkillHubTaskService.Task task) {
+        Map<String, Object> response = new java.util.LinkedHashMap<>();
+        response.put("task_id", task.taskId());
+        response.put("bundle_url", task.bundleUrl());
+        response.put("version", task.version());
+        response.put("enable", task.enable());
+        response.put("status", task.status());
+        response.put("error", task.error());
+        response.put("result", task.result());
+        response.put("created_at", task.createdAt());
+        response.put("updated_at", task.updatedAt());
+        return response;
     }
 
     @ExceptionHandler(IllegalArgumentException.class)
