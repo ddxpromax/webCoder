@@ -17,6 +17,7 @@ import CronPage from '@/majo/CronPage.vue'
 import InboxPage from '@/majo/InboxPage.vue'
 import BackupsPage from '@/majo/BackupsPage.vue'
 import CheckpointsPage from '@/majo/CheckpointsPage.vue'
+import SecurityPage from '@/majo/SecurityPage.vue'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -35,6 +36,7 @@ const router = createRouter({
         { path: 'models', component: ModelsPage },
         { path: 'settings', component: SettingsPage },
         { path: 'settings/environments', component: EnvironmentsPage },
+        { path: 'settings/security', component: SecurityPage },
         { path: 'mcp', component: McpPage },
         { path: 'tools', component: ToolsPage },
         { path: 'token-usage', component: TokenUsagePage },
