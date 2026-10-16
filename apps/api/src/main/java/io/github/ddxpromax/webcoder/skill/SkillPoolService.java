@@ -21,14 +21,17 @@ public class SkillPoolService {
     private final Path root;
     private final JsonFileStore files;
     private final SkillWorkspaceService workspaceSkills;
+    private final SkillZipImportService zipImport;
     private Map<String, Object> activeManifest;
     private Map<String, Object> activeEntries;
 
     public SkillPoolService(MajoWorkingDirectory working, JsonFileStore files,
-                            SkillWorkspaceService workspaceSkills) {
+                            SkillWorkspaceService workspaceSkills,
+                            SkillZipImportService zipImport) {
         this.root = working.resolve("skill_pool");
         this.files = files;
         this.workspaceSkills = workspaceSkills;
+        this.zipImport = zipImport;
     }
 
     public synchronized List<Map<String, Object>> list() {
@@ -123,6 +126,25 @@ public class SkillPoolService {
             return Map.of("success", true, "name", target);
         } catch (IOException exception) { throw new IllegalStateException("Could not save pool skill", exception); }
         finally { deleteTree(staged); }
+    }
+
+    public synchronized Map<String, Object> importZip(byte[] archive, String targetName,
+                                                       Map<String, String> renameMap) {
+        Path temporary = null;
+        try {
+            reconcile();
+            temporary = Files.createTempDirectory(root.getParent(), "majo-pool-import-");
+            Map<String,Object> staged = zipImport.importZip(temporary, archive, false,
+                targetName, renameMap);
+            @SuppressWarnings("unchecked") List<String> imported = (List<String>) staged.get("imported");
+            if (!((List<?>) staged.get("conflicts")).isEmpty()) return staged;
+            List<Map<String,Object>> conflicts = new ArrayList<>();
+            for (String name : imported) if (Files.exists(root.resolve(name))) conflicts.add(Map.of("name", name, "reason", "conflict"));
+            if (!conflicts.isEmpty()) return Map.of("imported", List.of(), "count", 0, "conflicts", conflicts);
+            for (String name : imported) upload(temporary, name, false, false);
+            return Map.of("imported", imported, "count", imported.size(), "conflicts", List.of());
+        } catch (IOException exception) { throw new IllegalStateException("Could not import Pool ZIP", exception); }
+        finally { deleteTree(temporary); }
     }
 
     public synchronized Map<String, Object> download(Path workspace, String name,

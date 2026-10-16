@@ -15,7 +15,8 @@ class SkillPoolServiceTests {
         var files = new JsonFileStore(new ObjectMapper());
         var workspaceSkills = new SkillWorkspaceService(files);
         var pool = new SkillPoolService(
-            new MajoWorkingDirectory(root.toString()), files, workspaceSkills
+            new MajoWorkingDirectory(root.toString()), files, workspaceSkills,
+            new SkillZipImportService(workspaceSkills)
         );
         var workspace = Files.createTempDirectory("majo-workspace-test-");
 
@@ -33,8 +34,9 @@ class SkillPoolServiceTests {
     void savesPoolSkillContentWithoutDroppingItsEntry() throws Exception {
         var root = Files.createTempDirectory("majo-pool-test-");
         var files = new JsonFileStore(new ObjectMapper());
+        var workspaceSkills = new SkillWorkspaceService(files);
         var pool = new SkillPoolService(new MajoWorkingDirectory(root.toString()), files,
-            new SkillWorkspaceService(files));
+            workspaceSkills, new SkillZipImportService(workspaceSkills));
         pool.create("review", "---\nname: review\ndescription: Original\n---\nFirst.", null, null, null, "");
 
         assertThat(pool.save("review", "review", "---\nname: review\ndescription: Updated\n---\nSecond.", null, false))

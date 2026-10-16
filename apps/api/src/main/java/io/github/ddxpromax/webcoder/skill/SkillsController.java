@@ -136,6 +136,18 @@ public class SkillsController {
         return result;
     }
 
+    @PostMapping({"/skills/pool/upload-zip", "/agents/{agentId}/skills/pool/upload-zip"})
+    public ResponseEntity<Map<String,Object>> uploadPoolZip(@PathVariable(required = false) String agentId,
+        @RequestParam("file") MultipartFile file, @RequestParam(defaultValue = "") String target_name,
+        @RequestParam(defaultValue = "") String rename_map) throws java.io.IOException {
+        Map<String,String> renames;
+        try { renames = rename_map.isBlank() ? Map.of() : mapper.readValue(rename_map, new TypeReference<Map<String,String>>() {}); }
+        catch (Exception exception) { throw new IllegalArgumentException("rename_map must be a JSON object", exception); }
+        Map<String,Object> result = pool.importZip(file.getBytes(), target_name, renames);
+        @SuppressWarnings("unchecked") List<Map<String,Object>> conflicts = (List<Map<String,Object>>) result.get("conflicts");
+        return ResponseEntity.status(conflicts.isEmpty() ? HttpStatus.OK : HttpStatus.CONFLICT).body(result);
+    }
+
     @PostMapping({"/skills/pool/upload", "/agents/{agentId}/skills/pool/upload"})
     public Map<String, Object> uploadToPool(@PathVariable(required = false) String agentId,
         @RequestBody Map<String, Object> body, HttpServletRequest request) {
