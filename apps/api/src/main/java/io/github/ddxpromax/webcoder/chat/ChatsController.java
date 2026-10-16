@@ -2,6 +2,8 @@ package io.github.ddxpromax.webcoder.chat;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.format.DateTimeFormatter;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -19,6 +21,7 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import io.github.ddxpromax.webcoder.agent.AgentStore;
 
 @RestController
 @RequestMapping("/api")
@@ -26,10 +29,12 @@ import org.springframework.web.bind.annotation.RestController;
 public class ChatsController {
     private final ChatService chatService;
     private final ObjectMapper objectMapper;
+    private final AgentStore agents;
 
-    public ChatsController(ChatService chatService, ObjectMapper objectMapper) {
+    public ChatsController(ChatService chatService, ObjectMapper objectMapper, AgentStore agents) {
         this.chatService = chatService;
         this.objectMapper = objectMapper;
+        this.agents = agents;
     }
 
     @GetMapping("/chats")
@@ -49,6 +54,31 @@ public class ChatsController {
     @PostMapping("/chats")
     public ChatSpecDto create() {
         return ChatSpecDto.from(chatService.create());
+    }
+
+    @GetMapping("/chats/{id}/project-dir")
+    public ResponseEntity<?> projectDir(@PathVariable String id) {
+        ChatEntity chat = chatService.getChat(id);
+        return chat == null ? ResponseEntity.status(404).body(Map.of("detail", "Chat not found: " + id))
+            : ResponseEntity.ok(projectDirResponse(chat));
+    }
+
+    @PutMapping("/chats/{id}/project-dir")
+    public ResponseEntity<?> setProjectDir(@PathVariable String id, @RequestBody Map<String, Object> body) {
+        String input = body.get("project_dir") == null ? "" : String.valueOf(body.get("project_dir")).trim();
+        if (input.isBlank()) return ResponseEntity.badRequest().body(Map.of("detail", "project_dir is required"));
+        Path directory = Path.of(input).toAbsolutePath().normalize();
+        if (!Files.isDirectory(directory)) return ResponseEntity.badRequest().body(Map.of("detail", "Project directory is unavailable: " + directory));
+        ChatEntity chat = chatService.setProjectDir(id, directory.toString());
+        return chat == null ? ResponseEntity.status(404).body(Map.of("detail", "Chat not found: " + id))
+            : ResponseEntity.ok(projectDirResponse(chat));
+    }
+
+    @DeleteMapping("/chats/{id}/project-dir")
+    public ResponseEntity<?> clearProjectDir(@PathVariable String id) {
+        ChatEntity chat = chatService.setProjectDir(id, null);
+        return chat == null ? ResponseEntity.status(404).body(Map.of("detail", "Chat not found: " + id))
+            : ResponseEntity.ok(projectDirResponse(chat));
     }
 
     @GetMapping("/chats/{id}")
@@ -161,6 +191,33 @@ public class ChatsController {
             chatService.setArchived(id, false);
         }
         return Map.of("status", "ok");
+    }
+
+    @PostMapping("/agents/{agentId}/chats/actions/batch-archive")
+    @Transactional
+    public Map<String, String> agentBatchArchive(@PathVariable String agentId, @RequestBody Map<String, Object> body) {
+        return batchArchive(body);
+    }
+
+    @PostMapping("/agents/{agentId}/chats/actions/batch-unarchive")
+    @Transactional
+    public Map<String, String> agentBatchUnarchive(@PathVariable String agentId, @RequestBody Map<String, Object> body) {
+        return batchUnarchive(body);
+    }
+
+    private Map<String, Object> projectDirResponse(ChatEntity chat) {
+        String sessionDirectory = chat.getProjectDir();
+        String agentId = chat.getAgentId() == null || chat.getAgentId().isBlank()
+            ? AgentStore.DEFAULT_AGENT_ID : chat.getAgentId();
+        String agentDirectory = agents.getProjectDir(agentId);
+        String directory;
+        String source;
+        if (sessionDirectory != null && !sessionDirectory.isBlank()) { directory = sessionDirectory; source = "session"; }
+        else if (agentDirectory != null && !agentDirectory.isBlank()) { directory = agentDirectory; source = "agent"; }
+        else { directory = agents.workspaceDirForAgent(agentId).toString(); source = "workspace_fallback"; }
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("project_dir", directory); result.put("source", source); result.put("agent_project_dir", agentDirectory); result.put("exists", Files.isDirectory(Path.of(directory)));
+        return result;
     }
 
     private static List<String> chatIds(Map<String, Object> body) {
