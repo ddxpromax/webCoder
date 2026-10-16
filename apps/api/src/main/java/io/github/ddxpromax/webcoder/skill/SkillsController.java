@@ -114,14 +114,14 @@ public class SkillsController {
         return Map.of("task_id", taskId, "status", hubInstall.cancel(taskId));
     }
 
-    @GetMapping("/skills/pool")
-    public List<Map<String, Object>> listPool() { return pool.list(); }
+    @GetMapping({"/skills/pool", "/agents/{agentId}/skills/pool"})
+    public List<Map<String, Object>> listPool(@PathVariable(required = false) String agentId) { return pool.list(); }
 
-    @PostMapping("/skills/pool/refresh")
-    public List<Map<String, Object>> refreshPool() { return pool.list(); }
+    @PostMapping({"/skills/pool/refresh", "/agents/{agentId}/skills/pool/refresh"})
+    public List<Map<String, Object>> refreshPool(@PathVariable(required = false) String agentId) { return pool.list(); }
 
-    @PostMapping("/skills/pool/create")
-    public Map<String, Object> createPool(@RequestBody Map<String, Object> body) {
+    @PostMapping({"/skills/pool/create", "/agents/{agentId}/skills/pool/create"})
+    public Map<String, Object> createPool(@PathVariable(required = false) String agentId, @RequestBody Map<String, Object> body) {
         return pool.create(text(body.get("name")), text(body.get("content")),
             asMap(body.get("references")), asMap(body.get("scripts")),
             asMap(body.get("config")), "");
@@ -141,10 +141,32 @@ public class SkillsController {
             Boolean.TRUE.equals(body.get("overwrite")), Boolean.TRUE.equals(body.get("preview_only")));
     }
 
-    @DeleteMapping("/skills/pool/{name}")
-    public Map<String, Object> deletePool(@PathVariable String name) {
+    @DeleteMapping({"/skills/pool/{name}", "/agents/{agentId}/skills/pool/{name}"})
+    public Map<String, Object> deletePool(@PathVariable(required = false) String agentId, @PathVariable String name) {
         if (!pool.delete(name)) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Skill not found");
         return Map.of("deleted", true);
+    }
+
+    @GetMapping({"/skills/pool/{name}/config", "/agents/{agentId}/skills/pool/{name}/config"})
+    public Map<String, Object> poolConfig(@PathVariable(required = false) String agentId, @PathVariable String name) {
+        return pool.list().stream().filter(item -> name.equals(item.get("name"))).findFirst()
+            .map(item -> Map.of("config", item.getOrDefault("config", Map.of())))
+            .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Skill not found"));
+    }
+
+    @PutMapping({"/skills/pool/{name}/config", "/agents/{agentId}/skills/pool/{name}/config"})
+    public Map<String, Object> setPoolConfig(@PathVariable(required = false) String agentId, @PathVariable String name, @RequestBody Map<String, Object> body) {
+        require(pool.config(name, asMap(body.get("config")))); return Map.of("updated", true);
+    }
+
+    @PutMapping({"/skills/pool/{name}/tags", "/agents/{agentId}/skills/pool/{name}/tags"})
+    public Map<String, Object> setPoolTags(@PathVariable(required = false) String agentId, @PathVariable String name, @RequestBody List<String> tags) {
+        require(pool.tags(name, tags)); return Map.of("updated", true, "tags", tags);
+    }
+
+    @PutMapping({"/skills/pool/{name}/auto-update", "/agents/{agentId}/skills/pool/{name}/auto-update"})
+    public Map<String, Object> setPoolAutoUpdate(@PathVariable(required = false) String agentId, @PathVariable String name, @RequestBody Map<String, Object> body) {
+        require(pool.autoUpdate(name, Boolean.TRUE.equals(body.get("enabled")), stringList(body.get("targets")))); return Map.of("updated", true);
     }
 
     @PostMapping({"/skills", "/agents/{agentId}/skills"})
@@ -452,6 +474,13 @@ public class SkillsController {
             String.valueOf(key), value
         ));
         return result;
+    }
+
+    private static List<String> stringList(Object raw) {
+        if (!(raw instanceof List<?> values)) {
+            return List.of();
+        }
+        return values.stream().map(String::valueOf).toList();
     }
 
     private static Map<String, Object> task(SkillHubTaskService.Task task) {
