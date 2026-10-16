@@ -1,58 +1,48 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { apiRequest } from './api'
 
 type Channel = { enabled: boolean; bot_prefix: string; [key: string]: unknown }
-const types = ref<string[]>([])
-const channels = ref<Record<string, Channel>>({})
-const health = ref<Record<string, string>>({})
-const loading = ref(false)
-const saving = ref('')
-const error = ref('')
-const notice = ref('')
+type Field = { name: string; label: string; type: 'switch' | 'text' | 'password' | 'number' | 'select'; options?: string[] }
+type Schema = { label: string; description: string; config_fields: Field[] }
+type UserInfo = { remark: string; username: string }
+type Pending = { channel: string; user_id: string; username: string; first_message: string; remark: string }
+type Acl = { whitelist: Record<string, UserInfo>; blacklist: Record<string, UserInfo> }
+
+const types = ref<string[]>([]), channels = ref<Record<string, Channel>>({}), schemas = ref<Record<string, Schema>>({}), health = ref<Record<string, string>>({}), acl = ref<Record<string, Acl>>({}), pending = ref<Pending[]>([])
+const loading = ref(false), saving = ref(''), error = ref(''), notice = ref(''), accessOpen = ref(false), accessChannel = ref(''), accessUser = ref(''), accessRemark = ref('')
+const enabled = computed(() => types.value.filter((name) => channel(name).enabled))
+const available = computed(() => types.value.filter((name) => !channel(name).enabled))
 
 async function refresh() {
   loading.value = true; error.value = ''
   try {
-    const [nextTypes, nextChannels] = await Promise.all([
-      apiRequest<string[]>('/config/channels/types'), apiRequest<Record<string, Channel>>('/config/channels'),
-    ])
-    types.value = nextTypes; channels.value = nextChannels
-    const checks = await Promise.all(nextTypes.map(async (name) => [name, (await apiRequest<{ status: string }>(`/config/channels/${encodeURIComponent(name)}/health`)).status] as const))
-    health.value = Object.fromEntries(checks)
+    const [nextTypes, nextChannels, nextSchemas] = await Promise.all([apiRequest<string[]>('/config/channels/types'), apiRequest<Record<string, Channel>>('/config/channels'), apiRequest<Record<string, Schema>>('/config/channels/schemas')])
+    types.value = nextTypes; channels.value = nextChannels; schemas.value = nextSchemas
+    if (!accessChannel.value || !types.value.includes(accessChannel.value)) accessChannel.value = types.value[0] ?? ''
+    health.value = Object.fromEntries(await Promise.all(types.value.map(async (name) => [name, (await apiRequest<{ status: string }>(`/config/channels/${encodeURIComponent(name)}/health`)).status] as const)))
+    await refreshAccess()
   } catch (cause) { error.value = cause instanceof Error ? cause.message : 'Could not load channels.' }
   finally { loading.value = false }
 }
-
-async function save(name: string) {
-  saving.value = name; error.value = ''; notice.value = ''
-  try { await apiRequest(`/config/channels/${encodeURIComponent(name)}`, { method: 'PUT', body: JSON.stringify(channels.value[name]) }); await refresh(); notice.value = `${name} saved.` }
-  catch (cause) { error.value = cause instanceof Error ? cause.message : 'Could not save channel.' }
-  finally { saving.value = '' }
-}
-
-async function restart(name: string) {
-  try { await apiRequest(`/config/channels/${encodeURIComponent(name)}/restart`, { method: 'POST' }); await refresh(); notice.value = `${name} restarted.` }
-  catch (cause) { error.value = cause instanceof Error ? cause.message : 'Could not restart channel.' }
-}
-function channel(name: string): Channel {
-  return channels.value[name] ?? (channels.value[name] = { enabled: false, bot_prefix: '' })
-}
+async function refreshAccess() { try { const [all, requests] = await Promise.all([apiRequest<Record<string, Acl>>('/access-control'), apiRequest<Pending[]>('/access-control/pending/all')]); acl.value = all; pending.value = requests } catch { /* ACL should not block channel configuration. */ } }
+async function save(name: string) { saving.value = name; error.value = ''; try { await apiRequest(`/config/channels/${encodeURIComponent(name)}`, { method: 'PUT', body: JSON.stringify(channel(name)) }); await refresh(); notice.value = `${label(name)} configuration saved.` } catch (cause) { error.value = cause instanceof Error ? cause.message : 'Could not save channel.' } finally { saving.value = '' } }
+async function restart(name: string) { try { await apiRequest(`/config/channels/${encodeURIComponent(name)}/restart`, { method: 'POST' }); await refresh(); notice.value = `${label(name)} restart requested.` } catch (cause) { error.value = cause instanceof Error ? cause.message : 'Could not restart channel.' } }
+async function addAccess(list: 'whitelist' | 'blacklist') { if (!accessChannel.value || !accessUser.value.trim()) return; try { await apiRequest(`/access-control/${list}/add`, { method: 'POST', body: JSON.stringify({ entries: [{ channel: accessChannel.value, user_id: accessUser.value.trim(), remark: accessRemark.value.trim() }] }) }); accessUser.value = ''; accessRemark.value = ''; await refreshAccess(); notice.value = `User added to the ${list}.` } catch (cause) { error.value = cause instanceof Error ? cause.message : 'Could not update access control.' } }
+async function removeAccess(list: 'whitelist' | 'blacklist', userId: string) { try { await apiRequest(`/access-control/${list}/remove`, { method: 'POST', body: JSON.stringify({ entries: [{ channel: accessChannel.value, user_id: userId }] }) }); await refreshAccess() } catch (cause) { error.value = cause instanceof Error ? cause.message : 'Could not update access control.' } }
+async function decide(item: Pending, action: 'approve' | 'deny' | 'dismiss') { try { await apiRequest(`/access-control/pending/${action}`, { method: 'POST', body: JSON.stringify({ entries: [{ channel: item.channel, user_id: item.user_id, remark: item.remark }] }) }); await refreshAccess(); notice.value = `Access request ${action}d.` } catch (cause) { error.value = cause instanceof Error ? cause.message : 'Could not process the access request.' } }
+function channel(name: string): Channel { return channels.value[name] ?? (channels.value[name] = { enabled: false, bot_prefix: '' }) }
+function schema(name: string): Schema { return schemas.value[name] ?? { label: name, description: '', config_fields: [] } }
+function label(name: string): string { return schema(name).label || name }
+function accessFor(name: string): Acl { return acl.value[name] ?? { whitelist: {}, blacklist: {} } }
 onMounted(() => void refresh())
 </script>
 
 <template>
   <section class="settings-page">
-    <header class="settings-heading"><div><p class="eyebrow">CONTROL</p><h1>Channels</h1></div><button @click="refresh">Refresh</button></header>
-    <p v-if="error" class="inline-error" role="alert">{{ error }}</p><p v-if="notice" class="success-notice">{{ notice }}</p>
-    <p v-if="loading">Loading channels…</p>
-    <div v-else class="settings-grid">
-      <form v-for="name in types" :key="name" class="settings-card stacked-form" @submit.prevent="save(name)">
-        <div class="skills-editor-heading"><h2>{{ name === 'console' ? 'Console' : name }}</h2><span class="muted">{{ health[name] || 'unknown' }}</span></div>
-        <label class="skills-checkbox"><input v-model="channel(name).enabled" type="checkbox" :disabled="name === 'console'" /> Enable channel</label>
-        <label>Bot prefix <input v-model="channel(name).bot_prefix" placeholder="Optional prefix" /></label>
-        <div class="skills-editor-actions"><button type="submit" class="primary" :disabled="saving === name">{{ saving === name ? 'Saving…' : 'Save' }}</button><button type="button" @click="restart(name)">Restart</button></div>
-      </form>
-    </div>
+    <header class="settings-heading"><div><p class="eyebrow">CONTROL</p><h1>Channels</h1></div><div class="skills-editor-actions"><button @click="accessOpen = !accessOpen">Access control <span v-if="pending.length">({{ pending.length }})</span></button><button @click="refresh">Refresh</button></div></header>
+    <p v-if="error" class="inline-error" role="alert">{{ error }}</p><p v-if="notice" class="success-notice">{{ notice }}</p><p v-if="loading">Loading channels…</p>
+    <section v-if="accessOpen" class="settings-card stacked-form channel-access-panel"><div class="skills-editor-heading"><div><h2>Channel access control</h2><p class="muted">Allow, deny, and approve external channel users before messages reach the agent.</p></div></div><label>Channel <select v-model="accessChannel"><option v-for="name in types" :key="name" :value="name">{{ label(name) }}</option></select></label><div class="channel-access-add"><label>User ID <input v-model="accessUser" placeholder="Platform user ID" /></label><label>Remark <input v-model="accessRemark" placeholder="Optional note" /></label><button type="button" class="primary" @click="addAccess('whitelist')">Allow user</button><button type="button" @click="addAccess('blacklist')">Block user</button></div><div class="channel-access-lists"><div><h3>Allowed users</h3><p v-if="!Object.keys(accessFor(accessChannel).whitelist).length" class="muted">No explicit allow rules.</p><div v-for="(info, userId) in accessFor(accessChannel).whitelist" :key="`allow-${userId}`" class="channel-access-row"><span><strong>{{ userId }}</strong><small>{{ info.username || info.remark }}</small></span><button type="button" @click="removeAccess('whitelist', userId)">Remove</button></div></div><div><h3>Blocked users</h3><p v-if="!Object.keys(accessFor(accessChannel).blacklist).length" class="muted">No blocked users.</p><div v-for="(info, userId) in accessFor(accessChannel).blacklist" :key="`block-${userId}`" class="channel-access-row"><span><strong>{{ userId }}</strong><small>{{ info.username || info.remark }}</small></span><button type="button" @click="removeAccess('blacklist', userId)">Remove</button></div></div></div><div><h3>Pending approvals</h3><p v-if="!pending.length" class="muted">No pending external access requests.</p><div v-for="item in pending" :key="`${item.channel}-${item.user_id}`" class="channel-access-row"><span><strong>{{ item.username || item.user_id }}</strong><small>{{ item.channel }} · {{ item.first_message }}</small></span><div class="skills-editor-actions"><button type="button" class="primary" @click="decide(item, 'approve')">Approve</button><button type="button" @click="decide(item, 'deny')">Deny</button><button type="button" @click="decide(item, 'dismiss')">Dismiss</button></div></div></div></section>
+    <div v-if="!loading" class="channel-sections"><section class="channel-section"><h2><span class="online-dot" /> Enabled channels <small>{{ enabled.length }}</small></h2><p v-if="!enabled.length" class="muted">No external channel is enabled.</p><div class="settings-grid"><form v-for="name in enabled" :key="name" class="settings-card stacked-form" @submit.prevent="save(name)"><div class="skills-editor-heading"><div><h2>{{ label(name) }}</h2><p class="muted">{{ schema(name).description }}</p></div><span class="muted">{{ health[name] || 'unknown' }}</span></div><template v-for="field in schema(name).config_fields" :key="field.name"><label v-if="field.type === 'switch'" class="skills-checkbox"><input v-model="channel(name)[field.name]" type="checkbox" :disabled="name === 'console' && field.name === 'enabled'" /> {{ field.label }}</label><label v-else>{{ field.label }}<select v-if="field.type === 'select'" v-model="channel(name)[field.name]"><option v-for="option in field.options ?? []" :key="option" :value="option">{{ option }}</option></select><input v-else v-model="channel(name)[field.name]" :type="field.type" /></label></template><div class="skills-editor-actions"><button type="submit" class="primary" :disabled="saving === name">{{ saving === name ? 'Saving…' : 'Save' }}</button><button type="button" @click="restart(name)">Restart</button></div></form></div></section><section class="channel-section channel-available"><h2>Available channels <small>{{ available.length }}</small></h2><div class="settings-grid"><form v-for="name in available" :key="name" class="settings-card stacked-form" @submit.prevent="save(name)"><div class="skills-editor-heading"><div><h2>{{ label(name) }}</h2><p class="muted">{{ schema(name).description }}</p></div><span class="muted">{{ health[name] || 'stopped' }}</span></div><template v-for="field in schema(name).config_fields" :key="field.name"><label v-if="field.type === 'switch'" class="skills-checkbox"><input v-model="channel(name)[field.name]" type="checkbox" /> {{ field.label }}</label><label v-else>{{ field.label }}<select v-if="field.type === 'select'" v-model="channel(name)[field.name]"><option v-for="option in field.options ?? []" :key="option" :value="option">{{ option }}</option></select><input v-else v-model="channel(name)[field.name]" :type="field.type" /></label></template><div class="skills-editor-actions"><button type="submit" class="primary" :disabled="saving === name">{{ saving === name ? 'Saving…' : 'Enable and save' }}</button></div></form></div></section></div>
   </section>
 </template>

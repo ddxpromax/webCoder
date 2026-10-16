@@ -173,6 +173,17 @@ a {
   border-top: 1px solid #2d2d2d;
   padding-top: 8px;
 }
+.channel-sections { display: grid; gap: 22px; }
+.channel-section > h2 { display: flex; align-items: center; gap: 9px; margin: 0 0 12px; font-size: 15px; }
+.channel-section > h2 small { color: #888; font-weight: 500; }
+.channel-available { border-top: 1px dashed #464646; padding-top: 22px; }
+.channel-access-panel { margin-bottom: 22px; }
+.channel-access-add, .channel-access-lists { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; align-items: end; }
+.channel-access-lists { border-top: 1px solid #333; padding-top: 14px; align-items: start; }
+.channel-access-lists h3, .channel-access-panel h3 { font-size: 13px; margin: 0 0 8px; }
+.channel-access-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-top: 1px solid #303030; padding: 9px 0; font-size: 12px; }
+.channel-access-row span { min-width: 0; display: grid; gap: 3px; }
+.channel-access-row small { color: #999; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 440px; }
 .main-panel {
   flex: 1;
   min-width: 0;
