@@ -15,7 +15,6 @@ public class ChannelAdaptersConfiguration {
     @Bean Channel feishuChannel() { return unsupported("feishu", "Feishu adapter has not been configured."); }
     @Bean Channel slackChannel() { return unsupported("slack", "Slack adapter has not been configured."); }
     @Bean Channel mqttChannel() { return unsupported("mqtt", "MQTT requires an MQTT client integration."); }
-    @Bean Channel mattermostChannel() { return unsupported("mattermost", "Mattermost adapter has not been configured."); }
     @Bean Channel voiceChannel() { return unsupported("voice", "Voice requires a telephony integration."); }
     @Bean Channel sipChannel() { return unsupported("sip", "SIP requires a gateway integration."); }
     @Bean Channel xiaoyiChannel() { return unsupported("xiaoyi", "Xiaoyi uses a private protocol."); }
