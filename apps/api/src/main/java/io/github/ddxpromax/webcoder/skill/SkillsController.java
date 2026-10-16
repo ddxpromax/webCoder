@@ -148,6 +148,13 @@ public class SkillsController {
         return ResponseEntity.status(conflicts.isEmpty() ? HttpStatus.OK : HttpStatus.CONFLICT).body(result);
     }
 
+    @PostMapping({"/skills/pool/import", "/agents/{agentId}/skills/pool/import"})
+    public Map<String,Object> importPoolHub(@PathVariable(required = false) String agentId,
+        @RequestBody Map<String,Object> body) {
+        return hubInstall.importToPool(pool, text(body.get("bundle_url")),
+            text(body.get("version")), text(body.get("target_name")));
+    }
+
     @PostMapping({"/skills/pool/upload", "/agents/{agentId}/skills/pool/upload"})
     public Map<String, Object> uploadToPool(@PathVariable(required = false) String agentId,
         @RequestBody Map<String, Object> body, HttpServletRequest request) {

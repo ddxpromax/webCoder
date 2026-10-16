@@ -76,6 +76,40 @@ public class SkillHubInstallService {
         return tasks.cancel(taskId);
     }
 
+    /** Synchronous Majo Pool import; Pool skills are never enabled directly. */
+    public Map<String, Object> importToPool(
+        SkillPoolService pool,
+        String bundleUrl,
+        String version,
+        String targetName
+    ) {
+        validateUrl(bundleUrl);
+        try {
+            Bundle bundle = resolve(bundleUrl, version == null ? "" : version,
+                new AtomicBoolean(false));
+            Map<String, Object> created = pool.create(
+                targetName == null || targetName.isBlank() ? bundle.name() : targetName,
+                bundle.content(), bundle.references(), bundle.scripts(), null,
+                bundle.installedFrom()
+            );
+            if (!Boolean.TRUE.equals(created.get("success"))) {
+                throw new IllegalStateException("A skill with this name already exists");
+            }
+            return Map.of(
+                "installed", true,
+                "name", created.get("name"),
+                "enabled", false,
+                "source_url", bundle.sourceUrl(),
+                "installed_from", bundle.installedFrom()
+            );
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Could not import skill from Hub", exception);
+        } catch (IOException exception) {
+            throw new IllegalStateException("Could not import skill from Hub", exception);
+        }
+    }
+
     private void install(String taskId, Path workspace, String targetName) {
         String createdName = null;
         AtomicBoolean cancelled = tasks.cancellation(taskId);
