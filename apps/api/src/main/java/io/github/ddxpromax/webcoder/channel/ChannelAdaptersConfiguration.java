@@ -21,7 +21,6 @@ public class ChannelAdaptersConfiguration {
     @Bean Channel sipChannel() { return unsupported("sip", "SIP requires a gateway integration."); }
     @Bean Channel xiaoyiChannel() { return unsupported("xiaoyi", "Xiaoyi uses a private protocol."); }
     @Bean Channel yuanbaoChannel() { return unsupported("yuanbao", "Yuanbao requires official integration."); }
-    @Bean Channel onebotChannel() { return unsupported("onebot", "OneBot adapter has not been configured."); }
     private static Channel unsupported(String id, String reason) { return new UnsupportedChannel(id, reason); }
 
     private static final class ConsoleChannel implements Channel {
