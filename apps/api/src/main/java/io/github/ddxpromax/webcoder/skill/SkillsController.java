@@ -136,9 +136,17 @@ public class SkillsController {
     @GetMapping({"/skills/pool/builtin-sources", "/agents/{agentId}/skills/pool/builtin-sources"})
     public List<Map<String,Object>> builtinSources(@PathVariable(required = false) String agentId) { return builtins.candidates(); }
 
+    @GetMapping({"/skills/pool/builtin-notice", "/agents/{agentId}/skills/pool/builtin-notice"})
+    public Map<String,Object> builtinNotice(@PathVariable(required = false) String agentId) { return builtins.notice(); }
+
     @PostMapping({"/skills/pool/import-builtin", "/agents/{agentId}/skills/pool/import-builtin"})
     public Map<String,Object> importBuiltins(@PathVariable(required = false) String agentId, @RequestBody Map<String,Object> body) {
         return builtins.importSkills(stringList(body.get("skill_names")), Boolean.TRUE.equals(body.get("overwrite_conflicts")));
+    }
+
+    @PostMapping({"/skills/pool/{name}/update-builtin", "/agents/{agentId}/skills/pool/{name}/update-builtin"})
+    public Map<String,Object> updateBuiltin(@PathVariable(required = false) String agentId, @PathVariable String name) {
+        return builtins.importSkills(List.of(name), true);
     }
 
     @PostMapping({"/skills/pool/create", "/agents/{agentId}/skills/pool/create"})

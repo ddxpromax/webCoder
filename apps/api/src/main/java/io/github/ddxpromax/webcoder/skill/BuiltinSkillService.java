@@ -25,6 +25,11 @@ public class BuiltinSkillService {
         for(String name:names){try{Bundle bundle=read(name);Map<String,Object> result=pool.create(name,bundle.content(),bundle.references(),bundle.scripts(),bundle.extra(),null,"builtin");if(Boolean.TRUE.equals(result.get("success")))imported.add(name);else if(overwrite){pool.save(name,name,bundle.content(),null,true);imported.add(name);}else conflicts.add(name);}catch(Exception e){conflicts.add(name);}}
         return Map.of("imported",imported,"conflicts",conflicts);
     }
+    public Map<String,Object> notice() {
+        List<String> installed=pool.list().stream().filter(item->"builtin".equals(item.get("source"))).map(item->String.valueOf(item.get("name"))).toList();
+        List<String> available=names().stream().filter(name->!installed.contains(name)).toList();
+        return Map.of("available",available,"installed",installed,"has_updates",!available.isEmpty());
+    }
     private List<String> names(){try{String index=new String(new ClassPathResource("builtin-skills/index.txt").getInputStream().readAllBytes(),StandardCharsets.UTF_8);return index.lines().filter(line->!line.isBlank()).toList();}catch(IOException e){throw new IllegalStateException("Could not read packaged skill index",e);}}
     private Bundle read(String name)throws IOException {
         String content=new String(new ClassPathResource("builtin-skills/"+name+"/SKILL.md").getInputStream().readAllBytes(),StandardCharsets.UTF_8);

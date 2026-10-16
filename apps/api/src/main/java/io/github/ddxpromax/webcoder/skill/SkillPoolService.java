@@ -86,7 +86,7 @@ public class SkillPoolService {
             if (Files.exists(root.resolve(normalized))) return Map.of("success", false, "reason", "conflict");
             copyTree(staged.resolve("skills").resolve(normalized), root.resolve(normalized));
             Map<String, Object> entry = new LinkedHashMap<>();
-            entry.put("source", "customized"); entry.put("tags", List.of());
+            entry.put("source", "builtin".equals(installedFrom) ? "builtin" : "customized"); entry.put("tags", List.of());
             entry.put("config", config == null ? Map.of() : config);
             if (installedFrom != null && !installedFrom.isBlank()) entry.put("installed_from", installedFrom);
             entries().put(normalized, entry); save();
