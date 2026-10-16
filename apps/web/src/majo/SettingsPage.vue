@@ -7,20 +7,35 @@ const accent = ref('#ff7f16')
 const accentDark = ref('')
 const notice = ref('')
 const error = ref('')
+const heartbeat = ref({ enabled: false, every: '6h', target: 'main', timeoutSeconds: 120 })
 
 async function refresh() {
   try {
-    const [lang, theme] = await Promise.all([
+    const [lang, theme, heartbeatConfig] = await Promise.all([
       apiRequest<{ language: string }>('/settings/language'),
       apiRequest<{ accent: string; accent_dark?: string }>('/config/theme'),
+      apiRequest<{ enabled: boolean; every: string; target: string; timeoutSeconds: number }>('/config/heartbeat'),
     ])
     language.value = lang.language
     accent.value = theme.accent || '#ff7f16'
     accentDark.value = theme.accent_dark || ''
+    heartbeat.value = heartbeatConfig
     document.documentElement.style.setProperty('--majo-accent', accent.value)
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : 'Could not load settings.'
   }
+}
+
+async function saveHeartbeat() {
+  error.value = ''; notice.value = ''
+  try { await apiRequest('/config/heartbeat', { method: 'PUT', body: JSON.stringify(heartbeat.value) }); notice.value = 'Heartbeat saved.' }
+  catch (cause) { error.value = cause instanceof Error ? cause.message : 'Could not save Heartbeat.' }
+}
+
+async function runHeartbeat() {
+  error.value = ''; notice.value = ''
+  try { const result = await apiRequest<{ started: boolean }>('/config/heartbeat/run', { method: 'POST' }); notice.value = result.started ? 'Heartbeat started.' : 'Enable Heartbeat before running it.' }
+  catch (cause) { error.value = cause instanceof Error ? cause.message : 'Could not start Heartbeat.' }
 }
 
 async function save() {
@@ -99,6 +114,17 @@ onMounted(() => void refresh())
       <h2>Environment variables</h2>
       <p>Set named values for workspace integrations.</p>
       <RouterLink to="/settings/environments">Manage variables</RouterLink>
+    </div>
+    <div class="settings-card narrow-card">
+      <h2>Heartbeat</h2>
+      <p>Run instructions from <code>HEARTBEAT.md</code> on a recurring schedule.</p>
+      <form class="stacked-form" @submit.prevent="saveHeartbeat">
+        <label class="skills-checkbox"><input v-model="heartbeat.enabled" type="checkbox" /> Enable Heartbeat</label>
+        <label>Every <input v-model="heartbeat.every" placeholder="6h or 0 */6 * * *" /></label>
+        <label>Target <select v-model="heartbeat.target"><option value="main">Main only</option><option value="inbox">Inbox</option></select></label>
+        <label>Timeout seconds <input v-model.number="heartbeat.timeoutSeconds" type="number" min="1" max="3600" /></label>
+        <div class="skills-editor-actions"><button type="submit" class="primary">Save Heartbeat</button><button type="button" @click="runHeartbeat">Run now</button></div>
+      </form>
     </div>
     <div class="settings-card narrow-card">
       <h2>Account</h2>

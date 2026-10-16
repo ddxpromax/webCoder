@@ -45,6 +45,23 @@ public class SettingsService {
         return result;
     }
 
+    public Map<String, Object> getHeartbeat() {
+        var row = repository.find(); Map<String, Object> value = new LinkedHashMap<>();
+        value.put("enabled", row.heartbeatEnabled()); value.put("every", row.heartbeatEvery());
+        value.put("target", row.heartbeatTarget()); value.put("timeoutSeconds", row.heartbeatTimeoutSeconds());
+        value.put("active_hours", Map.of("start", row.heartbeatActiveHoursStart() == null ? "" : row.heartbeatActiveHoursStart(), "end", row.heartbeatActiveHoursEnd() == null ? "" : row.heartbeatActiveHoursEnd()));
+        return value;
+    }
+
+    @Transactional
+    public void setHeartbeat(boolean enabled, String every, String target, int timeout, String start, String end) {
+        if (every == null || every.isBlank()) throw new IllegalArgumentException("heartbeat interval is required");
+        if (timeout < 1 || timeout > 3600) throw new IllegalArgumentException("timeoutSeconds must be between 1 and 3600");
+        repository.updateHeartbeat(enabled, every.strip(), target == null || target.isBlank() ? "main" : target.strip(), timeout, normalizeTime(start), normalizeTime(end));
+    }
+
+    private static String normalizeTime(String value) { if (value == null || value.isBlank()) return null; if (!value.matches("^([01]\\d|2[0-3]):[0-5]\\d$")) throw new IllegalArgumentException("active hours must use HH:mm"); return value; }
+
     @Transactional
     public Map<String, Object> setTheme(
         String accent,

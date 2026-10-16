@@ -18,7 +18,9 @@ public class SettingsRepository {
         return jdbc.queryForObject(
             """
             SELECT api_key, base_url, model_name, workspace,
-                   theme_accent, theme_accent_dark
+                   theme_accent, theme_accent_dark, heartbeat_enabled, heartbeat_every,
+                   heartbeat_target, heartbeat_timeout_seconds, heartbeat_active_hours_start,
+                   heartbeat_active_hours_end
             FROM settings
             WHERE id = 1
             """,
@@ -29,7 +31,10 @@ public class SettingsRepository {
                 rs.getString("model_name"),
                 rs.getString("workspace"),
                 rs.getString("theme_accent"),
-                rs.getString("theme_accent_dark")
+                rs.getString("theme_accent_dark"), rs.getBoolean("heartbeat_enabled"),
+                rs.getString("heartbeat_every"), rs.getString("heartbeat_target"),
+                rs.getInt("heartbeat_timeout_seconds"), rs.getString("heartbeat_active_hours_start"),
+                rs.getString("heartbeat_active_hours_end")
             )
         );
     }
@@ -64,6 +69,16 @@ public class SettingsRepository {
         );
     }
 
+    public void updateHeartbeat(boolean enabled, String every, String target, int timeout, String start, String end) {
+        jdbc.update("""
+            UPDATE settings SET heartbeat_enabled=:enabled, heartbeat_every=:every,
+              heartbeat_target=:target, heartbeat_timeout_seconds=:timeout,
+              heartbeat_active_hours_start=:start, heartbeat_active_hours_end=:end WHERE id=1
+            """,
+            new MapSqlParameterSource().addValue("enabled", enabled).addValue("every", every)
+                .addValue("target", target).addValue("timeout", timeout).addValue("start", start).addValue("end", end));
+    }
+
     private static void addIfPresent(
         Map<String, String> body,
         String requestKey,
@@ -83,6 +98,8 @@ public class SettingsRepository {
         String modelName,
         String workspace,
         String themeAccent,
-        String themeAccentDark
+        String themeAccentDark, boolean heartbeatEnabled, String heartbeatEvery,
+        String heartbeatTarget, int heartbeatTimeoutSeconds, String heartbeatActiveHoursStart,
+        String heartbeatActiveHoursEnd
     ) {}
 }
