@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.ddxpromax.webcoder.agent.JsonFileStore;
 import io.github.ddxpromax.webcoder.agent.MajoWorkingDirectory;
 import java.nio.file.Files;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 
 class SkillPoolServiceTests {
@@ -43,5 +44,18 @@ class SkillPoolServiceTests {
             .containsEntry("success", true);
         assertThat(pool.list()).singleElement()
             .extracting(skill -> skill.get("description")).isEqualTo("Updated");
+    }
+
+    @Test
+    void importsPackagedBuiltInSkill() throws Exception {
+        var root = Files.createTempDirectory("majo-builtin-test-");
+        var files = new JsonFileStore(new ObjectMapper());
+        var workspaceSkills = new SkillWorkspaceService(files);
+        var pool = new SkillPoolService(new MajoWorkingDirectory(root.toString()), files,
+            workspaceSkills, new SkillZipImportService(workspaceSkills));
+
+        var result = new BuiltinSkillService(pool).importSkills(List.of("guidance-en"), false);
+
+        assertThat(result.get("imported")).isEqualTo(List.of("guidance-en"));
     }
 }

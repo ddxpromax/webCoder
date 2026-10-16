@@ -63,11 +63,20 @@ public class SkillPoolService {
                                                     Map<String, Object> scripts,
                                                     Map<String, Object> config,
                                                     String installedFrom) {
+        return create(name, content, references, scripts, null, config, installedFrom);
+    }
+
+    public synchronized Map<String, Object> create(String name, String content,
+                                                    Map<String, Object> references,
+                                                    Map<String, Object> scripts,
+                                                    Map<String, Object> extraFiles,
+                                                    Map<String, Object> config,
+                                                    String installedFrom) {
         Path staged = null;
         try {
             staged = Files.createTempDirectory(root.getParent(), "majo-pool-");
             Map<String, Object> created = workspaceSkills.create(staged, name, content,
-                references, scripts, null, config, false);
+                references, scripts, extraFiles, config, false);
             if (!Boolean.TRUE.equals(created.get("success"))) return created;
             String normalized = String.valueOf(created.get("name"));
             reconcile();
