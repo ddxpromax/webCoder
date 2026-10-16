@@ -72,6 +72,17 @@ public class SkillsController {
         return list(agentId, request);
     }
 
+    @GetMapping("/skills/workspaces")
+    public List<Map<String,Object>> workspaces() {
+        List<Map<String,Object>> result=new java.util.ArrayList<>();
+        for(Map<String,Object> agent:agents.listProfiles()) {
+            String id=text(agent.get("id")); if(id.isBlank()) id=AgentStore.DEFAULT_AGENT_ID;
+            Path root=agents.workspaceDirForAgent(id); Map<String,Object> item=new java.util.LinkedHashMap<>();
+            item.put("agent_id",id); item.put("agent_name",text(agent.get("name"))); item.put("workspace_dir",root.toString()); item.put("skills",skills.list(root)); result.add(item);
+        }
+        return result;
+    }
+
     @GetMapping({"/skills/hub/search", "/agents/{agentId}/skills/hub/search"})
     public List<Map<String, Object>> searchHub(@PathVariable(required = false) String agentId, @RequestParam(defaultValue = "") String q, @RequestParam(defaultValue = "20") int limit) {
         return hubSearch.search(q, limit);
