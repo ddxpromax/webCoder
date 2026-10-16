@@ -30,6 +30,10 @@ const notice = ref('')
 const filter = ref('')
 const archive = ref<File | null>(null)
 const importEnabled = ref(true)
+const marketOpen = ref(false)
+const marketQuery = ref('')
+const marketLoading = ref(false)
+const marketResults = ref<Array<{ slug: string; name: string; description: string | null; agent_id: string }>>([])
 
 const base = computed(() => `/agents/${encodeURIComponent(workbench.agentId)}/skills`)
 const selected = computed(() => skills.value.find((skill) => skill.name === selectedName.value))
@@ -187,6 +191,29 @@ async function upload() {
   }
 }
 
+async function searchMarket() {
+  marketLoading.value = true
+  error.value = ''
+  try {
+    const result = await apiRequest<{ results: typeof marketResults.value }>('/market/search', {
+      method: 'POST', body: JSON.stringify({ query: marketQuery.value, limit: 50 }),
+    }, workbench.agentId)
+    marketResults.value = result.results
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : 'Could not search the skill market.'
+  } finally {
+    marketLoading.value = false
+  }
+}
+
+function openMarketSkill(result: { slug: string; agent_id: string }) {
+  marketOpen.value = false
+  if (result.agent_id === workbench.agentId) {
+    const skill = skills.value.find((item) => item.name === result.slug)
+    if (skill) select(skill)
+  }
+}
+
 watch(() => workbench.agentId, () => {
   selectedName.value = ''
   creating.value = false
@@ -199,7 +226,7 @@ onMounted(() => void refresh())
   <section class="settings-page skills-page">
     <header class="settings-heading">
       <div><p class="eyebrow">AGENT WORKSPACE</p><h1>Skills</h1></div>
-      <button @click="startCreate">New skill</button>
+      <div class="skills-editor-actions"><button @click="marketOpen = !marketOpen">{{ marketOpen ? 'My skills' : 'Browse market' }}</button><button @click="startCreate">New skill</button></div>
     </header>
     <p v-if="error" class="inline-error" role="alert">{{ error }}</p>
     <p v-if="notice" class="success-notice">{{ notice }}</p>
@@ -208,6 +235,18 @@ onMounted(() => void refresh())
       <label class="skills-checkbox"><input v-model="importEnabled" type="checkbox" /> Enable imported skills</label>
       <button type="submit" :disabled="saving">Import</button>
     </form>
+    <section v-if="marketOpen" class="settings-card market-panel">
+      <div class="skills-editor-heading"><div><p class="eyebrow">MAJO SKILL POOL</p><h2>Browse skills</h2></div></div>
+      <form class="skills-editor-actions" @submit.prevent="searchMarket">
+        <input v-model="marketQuery" aria-label="Search skill market" placeholder="Search skills" />
+        <button type="submit" :disabled="marketLoading">{{ marketLoading ? 'Searching…' : 'Search' }}</button>
+      </form>
+      <p v-if="!marketLoading && !marketResults.length" class="muted">Search installed workspace skills by name or description.</p>
+      <button v-for="result in marketResults" :key="`${result.agent_id}-${result.slug}`" class="skills-item" @click="openMarketSkill(result)">
+        <span><strong>{{ result.name }}</strong><small>{{ result.description || 'No description' }} · {{ result.agent_id === workbench.agentId ? 'Current workspace' : `Agent: ${result.agent_id}` }}</small></span>
+        <em>View</em>
+      </button>
+    </section>
     <div class="skills-grid">
       <div class="settings-card skills-list">
         <input v-model="filter" aria-label="Find skills" placeholder="Find skills" />
