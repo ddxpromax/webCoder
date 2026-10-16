@@ -176,6 +176,30 @@ async function remove() {
   }
 }
 
+async function publishToPool() {
+  const skill = selected.value
+  if (!skill) return
+  error.value = ''
+  notice.value = ''
+  try {
+    let result = await apiRequest<{ success: boolean; reason?: string }>(
+      `${base.value}/pool/upload`, {
+        method: 'POST', body: JSON.stringify({ skill_name: skill.name }),
+      }, workbench.agentId,
+    )
+    if (!result.success && result.reason === 'conflict') {
+      if (!window.confirm(`The Skill Pool already contains ${skill.name}. Replace it?`)) return
+      result = await apiRequest<{ success: boolean; reason?: string }>(`${base.value}/pool/upload`, {
+        method: 'POST', body: JSON.stringify({ skill_name: skill.name, overwrite: true }),
+      }, workbench.agentId)
+    }
+    if (!result.success) throw new Error('Could not add this skill to the shared pool.')
+    notice.value = `Added ${skill.name} to the Skill Pool.`
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : 'Could not add skill to the shared pool.'
+  }
+}
+
 function selectArchive(event: Event) {
   archive.value = (event.target as HTMLInputElement)
     .files?.[0] ?? null
@@ -346,6 +370,7 @@ onMounted(() => void refresh())
         </section>
         <div class="skills-editor-actions">
           <button type="submit" class="primary" :disabled="saving">{{ saving ? 'Saving…' : 'Save skill' }}</button>
+          <button v-if="selected" type="button" @click="publishToPool">Add to Skill Pool</button>
           <button v-if="selected && !selected.enabled" type="button" @click="remove">Delete</button>
         </div>
         <p v-if="selected?.enabled" class="skills-note">Disable this skill before deleting it.</p>
