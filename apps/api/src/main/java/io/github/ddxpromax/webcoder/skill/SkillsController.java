@@ -355,6 +355,26 @@ public class SkillsController {
         return Map.of("disabled", true, "success", true);
     }
 
+    @PostMapping({"/skills/batch-enable", "/agents/{agentId}/skills/batch-enable"})
+    public Map<String,Object> batchEnable(@PathVariable(required = false) String agentId,
+        @RequestBody Map<String,Object> body, HttpServletRequest request) {
+        return batchSetEnabled(workspace(agentId, request), stringList(body.get("skill_names")), true);
+    }
+
+    @PostMapping({"/skills/batch-disable", "/agents/{agentId}/skills/batch-disable"})
+    public Map<String,Object> batchDisable(@PathVariable(required = false) String agentId,
+        @RequestBody Map<String,Object> body, HttpServletRequest request) {
+        return batchSetEnabled(workspace(agentId, request), stringList(body.get("skill_names")), false);
+    }
+
+    @PostMapping({"/skills/batch-delete", "/agents/{agentId}/skills/batch-delete"})
+    public Map<String,Object> batchDelete(@PathVariable(required = false) String agentId,
+        @RequestBody Map<String,Object> body, HttpServletRequest request) {
+        List<String> deleted=new java.util.ArrayList<>(), failed=new java.util.ArrayList<>(); Path root=workspace(agentId,request);
+        for(String name:stringList(body.get("skill_names"))){try{if(skills.delete(root,name))deleted.add(name);else failed.add(name);}catch(IllegalArgumentException exception){failed.add(name);}}
+        return Map.of("deleted",deleted,"failed",failed);
+    }
+
     @DeleteMapping({
         "/skills/{name}",
         "/agents/{agentId}/skills/{name}"
@@ -526,6 +546,12 @@ public class SkillsController {
             return List.of();
         }
         return values.stream().map(String::valueOf).toList();
+    }
+
+    private Map<String,Object> batchSetEnabled(Path workspace, List<String> names, boolean enabled) {
+        List<String> updated=new java.util.ArrayList<>(), failed=new java.util.ArrayList<>();
+        for(String name:names){try{if(skills.setEnabled(workspace,name,enabled))updated.add(name);else failed.add(name);}catch(IllegalArgumentException exception){failed.add(name);}}
+        return Map.of(enabled ? "enabled" : "disabled",updated,"failed",failed);
     }
 
     private static Map<String, Object> task(SkillHubTaskService.Task task) {
