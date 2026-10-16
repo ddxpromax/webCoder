@@ -1,6 +1,7 @@
 package io.github.ddxpromax.webcoder.channel;
 
 import java.util.Map;
+import io.github.ddxpromax.webcoder.channel.impl.TelegramChannel;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -13,7 +14,6 @@ public class ChannelAdaptersConfiguration {
     @Bean Channel dingtalkChannel() { return unsupported("dingtalk", "DingTalk adapter has not been configured."); }
     @Bean Channel feishuChannel() { return unsupported("feishu", "Feishu adapter has not been configured."); }
     @Bean Channel qqChannel() { return unsupported("qq", "QQ adapter has not been configured."); }
-    @Bean Channel telegramChannel() { return unsupported("telegram", "Telegram adapter has not been configured."); }
     @Bean Channel slackChannel() { return unsupported("slack", "Slack adapter has not been configured."); }
     @Bean Channel mqttChannel() { return unsupported("mqtt", "MQTT requires an MQTT client integration."); }
     @Bean Channel matrixChannel() { return unsupported("matrix", "Matrix adapter has not been configured."); }
