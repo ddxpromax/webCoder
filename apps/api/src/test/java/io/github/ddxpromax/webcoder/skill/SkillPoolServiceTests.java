@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.ddxpromax.webcoder.agent.JsonFileStore;
 import io.github.ddxpromax.webcoder.agent.MajoWorkingDirectory;
+import io.github.ddxpromax.webcoder.agent.AgentStore;
 import java.nio.file.Files;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -65,5 +66,18 @@ class SkillPoolServiceTests {
         var workspaceSkills = new SkillWorkspaceService(files); var pool = new SkillPoolService(new MajoWorkingDirectory(root.toString()), files, workspaceSkills, new SkillZipImportService(workspaceSkills), null);
         pool.create("review", "---\nname: review\ndescription: Review\n---\nCheck.", null, null, null, "");
         assertThat(pool.batchDelete(List.of("review", "absent"))).containsEntry("deleted", List.of("review")).containsEntry("failed", List.of("absent"));
+    }
+
+    @Test
+    void autoUpdateSynchronizesToTargetAgentWorkspace() throws Exception {
+        var root = Files.createTempDirectory("majo-pool-auto-"); var files = new JsonFileStore(new ObjectMapper());
+        var working = new MajoWorkingDirectory(root.toString()); var workspaceSkills = new SkillWorkspaceService(files);
+        var agents = new AgentStore(working, files); var pool = new SkillPoolService(working, files, workspaceSkills, new SkillZipImportService(workspaceSkills), agents);
+        pool.create("review", "---\nname: review\ndescription: Review\n---\nCheck.", null, null, null, "");
+        pool.autoUpdate("review", true, List.of(AgentStore.DEFAULT_AGENT_ID));
+
+        assertThat(pool.syncAutoUpdate("review").get("synced")).isEqualTo(List.of(AgentStore.DEFAULT_AGENT_ID));
+        assertThat(workspaceSkills.list(agents.workspaceDirForAgent(AgentStore.DEFAULT_AGENT_ID))).singleElement()
+            .extracting(skill -> skill.get("name")).isEqualTo("review");
     }
 }
