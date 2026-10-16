@@ -55,6 +55,32 @@ export interface CodeFile {
   children?: CodeFile[]
 }
 
+export interface GitChange {
+  path: string
+  status: string
+  staged: boolean
+}
+
+export interface GitStatus {
+  branch: string
+  changes: GitChange[]
+  ahead: number
+  behind: number
+}
+
+export interface GitBranch {
+  name: string
+  current: boolean
+  remote: boolean
+}
+
+export interface GitCommit {
+  hash: string
+  author: string
+  date: string
+  message: string
+}
+
 function authHeaders(): Record<string, string> {
   const token =
     typeof window === 'undefined' ? null : window.localStorage?.getItem('majo_auth_token')
@@ -159,6 +185,62 @@ export function writeCodeFile(path: string, content: string, agentId: string) {
     { method: 'PUT', body: JSON.stringify({ content }) },
     agentId,
   )
+}
+
+export function gitStatus(agentId: string) {
+  return apiRequest<GitStatus>('/workspace/git/status', {}, agentId)
+}
+
+export function gitBranches(agentId: string) {
+  return apiRequest<GitBranch[]>('/workspace/git/branches', {}, agentId)
+}
+
+export function gitCheckout(agentId: string, branch: string, create = false) {
+  return apiRequest<{ branch: string }>('/workspace/git/checkout', {
+    method: 'POST', body: JSON.stringify({ branch, create }),
+  }, agentId)
+}
+
+export function gitDiff(agentId: string, path: string, staged: boolean, untracked: boolean) {
+  const query = new URLSearchParams({ path })
+  if (staged) query.set('staged', 'true')
+  if (untracked) query.set('untracked', 'true')
+  return apiRequest<{ diff: string }>(`/workspace/git/diff?${query}`, {}, agentId)
+}
+
+export function gitChangeStage(agentId: string, paths: string[], staged: boolean) {
+  return apiRequest<{ staged?: string[]; unstaged?: string[] }>(
+    `/workspace/git/${staged ? 'stage' : 'unstage'}`,
+    { method: 'POST', body: JSON.stringify({ paths }) }, agentId,
+  )
+}
+
+export function gitCommit(agentId: string, message: string) {
+  return apiRequest<{ committed: boolean; output: string }>('/workspace/git/commit', {
+    method: 'POST', body: JSON.stringify({ message }),
+  }, agentId)
+}
+
+export function gitDiscard(agentId: string, paths: string[]) {
+  return apiRequest<{ discarded: string[] }>('/workspace/git/discard', {
+    method: 'POST', body: JSON.stringify({ paths }),
+  }, agentId)
+}
+
+export function gitLog(agentId: string, limit = 20) {
+  return apiRequest<GitCommit[]>(`/workspace/git/log?limit=${limit}`, {}, agentId)
+}
+
+export function gitCommitDiff(agentId: string, hash: string) {
+  return apiRequest<{ diff: string; hash: string }>(
+    `/workspace/git/commit-diff?commit_hash=${encodeURIComponent(hash)}`, {}, agentId,
+  )
+}
+
+export function gitRevert(agentId: string, hash: string) {
+  return apiRequest<{ reverted: string; output: string }>('/workspace/git/revert', {
+    method: 'POST', body: JSON.stringify({ commit_hash: hash }),
+  }, agentId)
 }
 
 export function messageText(content: unknown): string {

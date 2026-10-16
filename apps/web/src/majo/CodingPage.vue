@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref, watch } from 'vue'
 import ChatPage from './ChatPage.vue'
+import GitPanel from './GitPanel.vue'
 import {
   apiRequest,
   getCodingProject,
@@ -205,6 +206,6 @@ onMounted(() => void refresh())
       <p v-if="error" class="inline-error" role="alert">{{ error }}</p>
     </section>
 
-    <aside class="coding-chat"><ChatPage :workspace="project?.path" /></aside>
+    <aside class="coding-chat"><GitPanel /><ChatPage :workspace="project?.path" /></aside>
   </div>
 </template>
