@@ -1,7 +1,6 @@
 package io.github.ddxpromax.webcoder.channel;
 
 import java.util.Map;
-import io.github.ddxpromax.webcoder.channel.impl.TelegramChannel;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -10,7 +9,6 @@ import org.springframework.context.annotation.Configuration;
 public class ChannelAdaptersConfiguration {
     @Bean Channel consoleChannel() { return new ConsoleChannel(); }
     @Bean Channel imessageChannel() { return unsupported("imessage", "iMessage requires macOS integration."); }
-    @Bean Channel discordChannel() { return unsupported("discord", "Discord adapter has not been configured."); }
     @Bean Channel dingtalkChannel() { return unsupported("dingtalk", "DingTalk adapter has not been configured."); }
     @Bean Channel feishuChannel() { return unsupported("feishu", "Feishu adapter has not been configured."); }
     @Bean Channel slackChannel() { return unsupported("slack", "Slack adapter has not been configured."); }
