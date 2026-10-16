@@ -34,7 +34,7 @@ const importEnabled = ref(true)
 const marketOpen = ref(false)
 const marketQuery = ref('')
 const marketLoading = ref(false)
-const marketResults = ref<Array<{ slug: string; name: string; description: string | null; agent_id: string }>>([])
+const marketResults = ref<Array<{ slug: string; name: string; description: string | null; version: string; source_url: string }>>([])
 const dependencies = ref<SkillDependencies | null>(null)
 const dependencyLoading = ref(false)
 
@@ -207,10 +207,7 @@ async function searchMarket() {
   marketLoading.value = true
   error.value = ''
   try {
-    const result = await apiRequest<{ results: typeof marketResults.value }>('/market/search', {
-      method: 'POST', body: JSON.stringify({ query: marketQuery.value, limit: 50 }),
-    }, workbench.agentId)
-    marketResults.value = result.results
+    marketResults.value = await apiRequest<typeof marketResults.value>(`${base.value}/hub/search?q=${encodeURIComponent(marketQuery.value)}&limit=50`, {}, workbench.agentId)
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : 'Could not search the skill market.'
   } finally {
@@ -218,12 +215,8 @@ async function searchMarket() {
   }
 }
 
-function openMarketSkill(result: { slug: string; agent_id: string }) {
-  marketOpen.value = false
-  if (result.agent_id === workbench.agentId) {
-    const skill = skills.value.find((item) => item.name === result.slug)
-    if (skill) select(skill)
-  }
+function openMarketSkill(result: { source_url: string }) {
+  window.open(result.source_url, '_blank', 'noopener,noreferrer')
 }
 
 watch(() => workbench.agentId, () => {
@@ -248,15 +241,15 @@ onMounted(() => void refresh())
       <button type="submit" :disabled="saving">Import</button>
     </form>
     <section v-if="marketOpen" class="settings-card market-panel">
-      <div class="skills-editor-heading"><div><p class="eyebrow">MAJO SKILL POOL</p><h2>Browse skills</h2></div></div>
+      <div class="skills-editor-heading"><div><p class="eyebrow">CLAW HUB</p><h2>Browse skills</h2></div></div>
       <form class="skills-editor-actions" @submit.prevent="searchMarket">
         <input v-model="marketQuery" aria-label="Search skill market" placeholder="Search skills" />
         <button type="submit" :disabled="marketLoading">{{ marketLoading ? 'Searching…' : 'Search' }}</button>
       </form>
-      <p v-if="!marketLoading && !marketResults.length" class="muted">Search installed workspace skills by name or description.</p>
-      <button v-for="result in marketResults" :key="`${result.agent_id}-${result.slug}`" class="skills-item" @click="openMarketSkill(result)">
-        <span><strong>{{ result.name }}</strong><small>{{ result.description || 'No description' }} · {{ result.agent_id === workbench.agentId ? 'Current workspace' : `Agent: ${result.agent_id}` }}</small></span>
-        <em>View</em>
+      <p v-if="!marketLoading && !marketResults.length" class="muted">Search published skills by name or description.</p>
+      <button v-for="result in marketResults" :key="result.slug" class="skills-item" @click="openMarketSkill(result)">
+        <span><strong>{{ result.name }}</strong><small>{{ result.description || 'No description' }}<template v-if="result.version"> · {{ result.version }}</template></small></span>
+        <em>Open</em>
       </button>
     </section>
     <div class="skills-grid">
