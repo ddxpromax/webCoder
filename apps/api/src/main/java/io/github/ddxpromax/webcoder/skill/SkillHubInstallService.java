@@ -166,8 +166,48 @@ public class SkillHubInstallService {
         if (host.equals("clawhub.ai") || host.equals("www.clawhub.ai")) {
             return resolveClawHub(uri, version, cancelled);
         }
+        if (host.equals("github.com") || host.equals("www.github.com")) {
+            return resolveGitHub(uri, version, cancelled);
+        }
         ensureNotCancelled(cancelled);
         return parseBundle(fetchText(uri, cancelled), bundleUrl, "hub");
+    }
+
+    private Bundle resolveGitHub(URI source, String requestedVersion,
+                                 AtomicBoolean cancelled)
+        throws IOException, InterruptedException {
+        String[] parts = source.getPath().replaceAll("^/+|/+$", "").split("/");
+        if (parts.length < 2) throw new IllegalArgumentException("Invalid GitHub skill URL");
+        String owner = parts[0], repo = parts[1], ref = requestedVersion;
+        String path = "";
+        if (parts.length >= 4 && ("tree".equals(parts[2]) || "blob".equals(parts[2]))) {
+            if (ref == null || ref.isBlank()) ref = parts[3];
+            path = String.join("/", java.util.Arrays.copyOfRange(parts, 4, parts.length));
+            if (path.endsWith("/SKILL.md")) path = path.substring(0, path.length() - 9);
+        }
+        if (ref == null || ref.isBlank()) ref = "main";
+        Map<String,Object> files = new LinkedHashMap<>();
+        githubCollect(owner, repo, path, ref, "", files, cancelled);
+        if (!files.containsKey("SKILL.md")) throw new IllegalStateException("GitHub skill directory is missing SKILL.md");
+        return fromFiles(path.isBlank() ? repo : path.substring(path.lastIndexOf('/') + 1), files,
+            "https://github.com/" + owner + "/" + repo, "github");
+    }
+
+    private void githubCollect(String owner, String repo, String path, String ref,
+                               String relative, Map<String,Object> files,
+                               AtomicBoolean cancelled) throws IOException, InterruptedException {
+        ensureNotCancelled(cancelled);
+        String encoded = path.isBlank() ? "" : "/" + path.replace(" ", "%20");
+        String endpoint = "https://api.github.com/repos/" + owner + "/" + repo + "/contents" + encoded + "?ref=" + URLEncoder.encode(ref, StandardCharsets.UTF_8);
+        Object response = new ObjectMapper().readValue(fetchText(URI.create(endpoint), cancelled), new TypeReference<Object>() {});
+        if (response instanceof Map<?,?> raw) {
+            Map<String,Object> entry = asMap(raw);
+            if (!"file".equals(text(entry.get("type")))) throw new IllegalStateException("Unexpected GitHub skill response");
+            String name = relative.isBlank() ? text(entry.get("name")) : relative;
+            files.put(name, fetchText(URI.create(text(entry.get("download_url"))), cancelled)); return;
+        }
+        if (!(response instanceof Iterable<?> entries)) throw new IllegalStateException("Unexpected GitHub skill response");
+        for (Object raw : entries) { Map<String,Object> entry=asMap(raw); String name=text(entry.get("name")); String child=relative.isBlank()?name:relative+"/"+name; if("dir".equals(text(entry.get("type")))) githubCollect(owner,repo,text(entry.get("path")),ref,child,files,cancelled); else if("file".equals(text(entry.get("type")))) files.put(child,fetchText(URI.create(text(entry.get("download_url"))),cancelled)); }
     }
 
     private Bundle resolveClawHub(
