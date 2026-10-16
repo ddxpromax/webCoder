@@ -9,6 +9,7 @@ import io.github.ddxpromax.webcoder.model.ProviderModelRepository;
 import io.github.ddxpromax.webcoder.settings.SettingsService;
 import io.github.ddxpromax.webcoder.skill.MaterializeSkillTool;
 import io.github.ddxpromax.webcoder.skill.SkillWorkspaceService;
+import io.github.ddxpromax.webcoder.mcp.McpRuntime;
 import java.nio.file.Path;
 import java.nio.file.Files;
 import java.io.IOException;
@@ -38,6 +39,7 @@ public class HarnessAgentFactory {
     private final TokenUsageService tokenUsage;
     private final SkillWorkspaceService skills;
     private final WorkspaceMutationGate mutationGate;
+    private final McpRuntime mcpRuntime;
 
     public HarnessAgentFactory(
         ModelRoutingService routing,
@@ -55,7 +57,8 @@ public class HarnessAgentFactory {
         ToolConfigService toolConfig,
         TokenUsageService tokenUsage,
         SkillWorkspaceService skills,
-        WorkspaceMutationGate mutationGate
+        WorkspaceMutationGate mutationGate,
+        McpRuntime mcpRuntime
     ) {
         this.routing = routing;
         this.providerModels = providerModels;
@@ -73,6 +76,7 @@ public class HarnessAgentFactory {
         this.tokenUsage = tokenUsage;
         this.skills = skills;
         this.mutationGate = mutationGate;
+        this.mcpRuntime = mcpRuntime;
     }
 
     public String agentName(String agentId) {
@@ -127,12 +131,13 @@ public class HarnessAgentFactory {
                 exception
             );
         }
+        Toolkit toolkit = toolkitFor(agentId, workspace);
         return HarnessAgent.builder()
             .name(agentName(agentId))
             .agentId(agentId)
             .sysPrompt(ProtectedPrompt.withContract(systemPrompt))
             .model(model)
-            .toolkit(toolkitFor(agentId, workspace))
+            .toolkit(toolkit)
             .workspace(workspace)
             .skillFilter(SkillFilter.only(
                 skills.enabledNames(workspace).toArray(String[]::new)
@@ -152,8 +157,17 @@ public class HarnessAgentFactory {
             ))
             .hook(new ApprovalHook(
                 agentId, agents, approvals, toolGuard,
-                fileGuard, toolConfig, workspace
+                fileGuard, toolConfig, workspace,
+                mcpRuntime, toolkit
             ));
+    }
+
+    public void close(HarnessAgent agent) {
+        try {
+            mcpRuntime.close(agent.getToolkit());
+        } finally {
+            agent.close();
+        }
     }
 
     Toolkit toolkitFor(String agentId, Path workspace) {
@@ -176,6 +190,7 @@ public class HarnessAgentFactory {
         toolkit.registerTool(new SendFileToUserTool(
             workspace, workingDirectory
         ));
+        mcpRuntime.register(toolkit);
         return toolkit;
     }
 }

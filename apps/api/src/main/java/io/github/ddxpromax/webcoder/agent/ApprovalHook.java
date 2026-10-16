@@ -1,6 +1,7 @@
 package io.github.ddxpromax.webcoder.agent;
 
 import io.agentscope.core.agent.RuntimeContext;
+import io.agentscope.core.tool.Toolkit;
 import io.agentscope.core.hook.Hook;
 import io.agentscope.core.hook.HookEvent;
 import io.agentscope.core.hook.PreActingEvent;
@@ -10,6 +11,7 @@ import io.agentscope.core.message.ToolUseBlock;
 import java.util.Set;
 import java.nio.file.Path;
 import java.util.concurrent.atomic.AtomicReference;
+import io.github.ddxpromax.webcoder.mcp.McpRuntime;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
@@ -38,6 +40,8 @@ public class ApprovalHook implements Hook, RuntimeContextAware {
     private final FileGuardService fileGuard;
     private final ToolConfigService toolConfig;
     private final Path workspace;
+    private final McpRuntime mcpRuntime;
+    private final Toolkit toolkit;
     private final AtomicReference<RuntimeContext> context =
         new AtomicReference<>();
 
@@ -50,6 +54,21 @@ public class ApprovalHook implements Hook, RuntimeContextAware {
         ToolConfigService toolConfig,
         Path workspace
     ) {
+        this(agentId, agents, store, guard, fileGuard,
+            toolConfig, workspace, null, null);
+    }
+
+    public ApprovalHook(
+        String agentId,
+        AgentStore agents,
+        ApprovalStore store,
+        ToolGuardService guard,
+        FileGuardService fileGuard,
+        ToolConfigService toolConfig,
+        Path workspace,
+        McpRuntime mcpRuntime,
+        Toolkit toolkit
+    ) {
         this.agentId = agentId;
         this.agents = agents;
         this.store = store;
@@ -57,6 +76,8 @@ public class ApprovalHook implements Hook, RuntimeContextAware {
         this.fileGuard = fileGuard;
         this.toolConfig = toolConfig;
         this.workspace = workspace;
+        this.mcpRuntime = mcpRuntime;
+        this.toolkit = toolkit;
     }
 
     @Override
@@ -93,9 +114,21 @@ public class ApprovalHook implements Hook, RuntimeContextAware {
             acting.setToolUse(rejected(toolUse, reason));
             return Mono.just(event);
         }
+        String mcpEffect = mcpRuntime == null
+            ? null : mcpRuntime.decision(
+                toolkit, toolUse.getName(), "console",
+                context.get() == null ? ""
+                    : context.get().getUserId()
+            );
+        if ("deny".equals(mcpEffect)) {
+            acting.setToolUse(rejected(
+                toolUse, "MCP policy denied this tool call."
+            ));
+            return Mono.just(event);
+        }
         if (!needsApproval(
             toolUse.getName(), toolUse.getInput()
-        )) {
+        ) && !"ask".equals(mcpEffect)) {
             return Mono.just(event);
         }
         return Mono.fromCallable(() -> {

@@ -852,6 +852,16 @@ a {
 .environment-row input:not([type='checkbox']) {
   width: 100%;
 }
+.mcp-rule-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0;
+}
+.mcp-rule-row input {
+  min-width: 120px;
+  flex: 1;
+}
 @media (max-width: 760px) {
   .environment-row {
     grid-template-columns: 24px minmax(0, 1fr) auto auto auto;

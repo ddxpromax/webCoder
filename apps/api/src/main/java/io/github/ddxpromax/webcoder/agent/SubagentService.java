@@ -155,6 +155,18 @@ public class SubagentService {
         String prompt,
         String sessionId
     ) {
+        try {
+            return runAgentAndCollect(agent, prompt, sessionId);
+        } finally {
+            factories.getObject().close(agent);
+        }
+    }
+
+    private String runAgentAndCollect(
+        HarnessAgent agent,
+        String prompt,
+        String sessionId
+    ) {
         RuntimeContext context = RuntimeContext.builder()
             .sessionId(sessionId)
             .userId("subagent")

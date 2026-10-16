@@ -8,6 +8,7 @@ import AgentsPage from '@/majo/AgentsPage.vue'
 import ModelsPage from '@/majo/ModelsPage.vue'
 import SettingsPage from '@/majo/SettingsPage.vue'
 import EnvironmentsPage from '@/majo/EnvironmentsPage.vue'
+import McpPage from '@/majo/McpPage.vue'
 import ToolsPage from '@/majo/ToolsPage.vue'
 import TokenUsagePage from '@/majo/TokenUsagePage.vue'
 import SkillsPage from '@/majo/SkillsPage.vue'
@@ -30,6 +31,7 @@ const router = createRouter({
         { path: 'models', component: ModelsPage },
         { path: 'settings', component: SettingsPage },
         { path: 'settings/environments', component: EnvironmentsPage },
+        { path: 'mcp', component: McpPage },
         { path: 'tools', component: ToolsPage },
         { path: 'token-usage', component: TokenUsagePage },
         { path: 'skills', component: SkillsPage },

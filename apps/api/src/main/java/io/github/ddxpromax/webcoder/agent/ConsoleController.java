@@ -199,6 +199,12 @@ public class ConsoleController {
                     exception);
             } finally {
                 turns.unregister(chatId);
+                try {
+                    agentFactory.close(agent);
+                } catch (Exception exception) {
+                    log.warn("Agent cleanup failed for chat {}",
+                        chatId, exception);
+                }
             }
             if (state.inputTokens > 0 || state.outputTokens > 0) {
                 try {

@@ -16,6 +16,7 @@ const nav = [
   { label: 'Models', to: '/models', icon: '◇' },
   { label: 'Tools', to: '/tools', icon: '⌁' },
   { label: 'Skills', to: '/skills', icon: '✦' },
+  { label: 'MCP', to: '/mcp', icon: '⌘' },
 ]
 
 async function refresh() {
