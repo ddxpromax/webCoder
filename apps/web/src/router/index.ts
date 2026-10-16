@@ -16,6 +16,7 @@ import LoginPage from '@/majo/LoginPage.vue'
 import CronPage from '@/majo/CronPage.vue'
 import InboxPage from '@/majo/InboxPage.vue'
 import BackupsPage from '@/majo/BackupsPage.vue'
+import CheckpointsPage from '@/majo/CheckpointsPage.vue'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -41,6 +42,7 @@ const router = createRouter({
         { path: 'cron', component: CronPage },
         { path: 'inbox', component: InboxPage },
         { path: 'backups', component: BackupsPage },
+        { path: 'checkpoints', component: CheckpointsPage },
       ],
     },
   ],
