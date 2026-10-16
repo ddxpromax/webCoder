@@ -140,6 +140,17 @@ public class ProviderRepository {
         );
     }
 
+    public void updateOAuthConnection(String providerId, String apiKey) {
+        jdbc.update(
+            """
+            UPDATE providers
+            SET api_key = :apiKey, oauth_connected = TRUE
+            WHERE id = :providerId
+            """,
+            Map.of("providerId", providerId, "apiKey", apiKey)
+        );
+    }
+
     private static ProviderRow mapProvider(
         ResultSet rs,
         int rowNum
