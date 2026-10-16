@@ -24,6 +24,13 @@ const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
     { path: '/', redirect: '/chat' },
+    {
+      path: '/console/:pathMatch(.*)*',
+      redirect: (to) => {
+        const suffix = String(to.params.pathMatch ?? '')
+        return suffix ? `/${suffix}` : '/chat'
+      },
+    },
     { path: '/login', component: LoginPage },
     {
       path: '/',
