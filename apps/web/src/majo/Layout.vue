@@ -18,6 +18,7 @@ const nav = [
   { label: 'Models', to: '/models', icon: '◇' },
   { label: 'Tools', to: '/tools', icon: '⌁' },
   { label: 'Skills', to: '/skills', icon: '✦' },
+  { label: 'Skill Pool', to: '/skill-pool', icon: '◫' },
   { label: 'MCP', to: '/mcp', icon: '⌘' },
   { label: 'Scheduled jobs', to: '/cron', icon: '◷' },
   { label: 'Inbox', to: '/inbox', icon: '✉' },
