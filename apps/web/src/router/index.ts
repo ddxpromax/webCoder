@@ -19,6 +19,7 @@ import BackupsPage from '@/majo/BackupsPage.vue'
 import CheckpointsPage from '@/majo/CheckpointsPage.vue'
 import SecurityPage from '@/majo/SecurityPage.vue'
 import AppsPage from '@/majo/AppsPage.vue'
+import ChannelsPage from '@/majo/ChannelsPage.vue'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -42,6 +43,7 @@ const router = createRouter({
         { path: 'files', component: FilesPage },
         { path: 'agents', component: AgentsPage },
         { path: 'apps', component: AppsPage },
+        { path: 'channels', component: ChannelsPage },
         { path: 'models', component: ModelsPage },
         { path: 'settings', component: SettingsPage },
         { path: 'settings/environments', component: EnvironmentsPage },
