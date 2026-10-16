@@ -127,6 +127,15 @@ public class SkillsController {
             asMap(body.get("config")), "");
     }
 
+    @PutMapping({"/skills/pool/save", "/agents/{agentId}/skills/pool/save"})
+    public Map<String, Object> savePool(@PathVariable(required = false) String agentId, @RequestBody Map<String, Object> body) {
+        Map<String,Object> result = pool.save(text(body.getOrDefault("source_name", body.get("name"))),
+            text(body.get("name")), text(body.get("content")), asMap(body.get("config")), Boolean.TRUE.equals(body.get("overwrite")));
+        if (!Boolean.TRUE.equals(result.get("success"))) throw new ResponseStatusException(
+            "not_found".equals(result.get("reason")) ? HttpStatus.NOT_FOUND : HttpStatus.CONFLICT, String.valueOf(result.get("reason")));
+        return result;
+    }
+
     @PostMapping({"/skills/pool/upload", "/agents/{agentId}/skills/pool/upload"})
     public Map<String, Object> uploadToPool(@PathVariable(required = false) String agentId,
         @RequestBody Map<String, Object> body, HttpServletRequest request) {

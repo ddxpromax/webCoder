@@ -28,4 +28,18 @@ class SkillPoolServiceTests {
             .singleElement().extracting(skill -> skill.get("name"))
             .isEqualTo("review");
     }
+
+    @Test
+    void savesPoolSkillContentWithoutDroppingItsEntry() throws Exception {
+        var root = Files.createTempDirectory("majo-pool-test-");
+        var files = new JsonFileStore(new ObjectMapper());
+        var pool = new SkillPoolService(new MajoWorkingDirectory(root.toString()), files,
+            new SkillWorkspaceService(files));
+        pool.create("review", "---\nname: review\ndescription: Original\n---\nFirst.", null, null, null, "");
+
+        assertThat(pool.save("review", "review", "---\nname: review\ndescription: Updated\n---\nSecond.", null, false))
+            .containsEntry("success", true);
+        assertThat(pool.list()).singleElement()
+            .extracting(skill -> skill.get("description")).isEqualTo("Updated");
+    }
 }

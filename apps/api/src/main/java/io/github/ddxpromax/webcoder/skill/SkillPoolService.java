@@ -98,6 +98,33 @@ public class SkillPoolService {
         return Map.of("success", true, "name", normalized);
     }
 
+    public synchronized Map<String, Object> save(String sourceName, String targetName,
+                                                  String content, Map<String, Object> config,
+                                                  boolean overwrite) {
+        reconcile();
+        String source = checkedName(sourceName);
+        String target = checkedName(targetName == null || targetName.isBlank() ? source : targetName);
+        Path sourceDirectory = root.resolve(source);
+        if (!Files.isRegularFile(sourceDirectory.resolve("SKILL.md"))) return Map.of("success", false, "reason", "not_found");
+        Path targetDirectory = root.resolve(target);
+        if (!source.equals(target) && Files.exists(targetDirectory) && !overwrite) return Map.of("success", false, "reason", "conflict");
+        Path staged = null;
+        try {
+            staged = Files.createTempDirectory(root.getParent(), "majo-pool-save-");
+            Path replacement = staged.resolve(target);
+            copyTree(sourceDirectory, replacement);
+            Files.writeString(replacement.resolve("SKILL.md"), content, StandardCharsets.UTF_8);
+            SkillWorkspaceService.validateContent(content); scan(target, replacement);
+            replaceCopy(replacement, targetDirectory);
+            Map<String,Object> entry = map(entries().get(source));
+            if (config != null) entry.put("config", config);
+            entries().remove(source); entries().put(target, entry); save();
+            if (!source.equals(target)) deleteTree(sourceDirectory);
+            return Map.of("success", true, "name", target);
+        } catch (IOException exception) { throw new IllegalStateException("Could not save pool skill", exception); }
+        finally { deleteTree(staged); }
+    }
+
     public synchronized Map<String, Object> download(Path workspace, String name,
                                                        boolean overwrite, boolean previewOnly) {
         reconcile(); String normalized = checkedName(name); Path source = root.resolve(normalized);
