@@ -210,7 +210,8 @@ public class SkillsController {
 
     @PutMapping({"/skills/pool/{name}/auto-update", "/agents/{agentId}/skills/pool/{name}/auto-update"})
     public Map<String, Object> setPoolAutoUpdate(@PathVariable(required = false) String agentId, @PathVariable String name, @RequestBody Map<String, Object> body) {
-        require(pool.autoUpdate(name, Boolean.TRUE.equals(body.get("enabled")), stringList(body.get("targets")))); return Map.of("updated", true);
+        boolean enabled=Boolean.TRUE.equals(body.get("enabled")); require(pool.autoUpdate(name, enabled, stringList(body.get("targets"))));
+        Map<String,Object> result=new java.util.LinkedHashMap<>(); result.put("updated",true); if(enabled)result.putAll(pool.syncAutoUpdate(name)); else {result.put("synced",List.of());result.put("failed",List.of());} return result;
     }
 
     @PostMapping({"/skills", "/agents/{agentId}/skills"})

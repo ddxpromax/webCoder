@@ -17,7 +17,7 @@ class SkillPoolServiceTests {
         var workspaceSkills = new SkillWorkspaceService(files);
         var pool = new SkillPoolService(
             new MajoWorkingDirectory(root.toString()), files, workspaceSkills,
-            new SkillZipImportService(workspaceSkills)
+            new SkillZipImportService(workspaceSkills), null
         );
         var workspace = Files.createTempDirectory("majo-workspace-test-");
 
@@ -37,7 +37,7 @@ class SkillPoolServiceTests {
         var files = new JsonFileStore(new ObjectMapper());
         var workspaceSkills = new SkillWorkspaceService(files);
         var pool = new SkillPoolService(new MajoWorkingDirectory(root.toString()), files,
-            workspaceSkills, new SkillZipImportService(workspaceSkills));
+            workspaceSkills, new SkillZipImportService(workspaceSkills), null);
         pool.create("review", "---\nname: review\ndescription: Original\n---\nFirst.", null, null, null, "");
 
         assertThat(pool.save("review", "review", "---\nname: review\ndescription: Updated\n---\nSecond.", null, false))
@@ -52,7 +52,7 @@ class SkillPoolServiceTests {
         var files = new JsonFileStore(new ObjectMapper());
         var workspaceSkills = new SkillWorkspaceService(files);
         var pool = new SkillPoolService(new MajoWorkingDirectory(root.toString()), files,
-            workspaceSkills, new SkillZipImportService(workspaceSkills));
+            workspaceSkills, new SkillZipImportService(workspaceSkills), null);
 
         var result = new BuiltinSkillService(pool).importSkills(List.of("guidance-en"), false);
 
@@ -62,7 +62,7 @@ class SkillPoolServiceTests {
     @Test
     void batchDeleteReportsMissingSkills() throws Exception {
         var root = Files.createTempDirectory("majo-pool-test-"); var files = new JsonFileStore(new ObjectMapper());
-        var workspaceSkills = new SkillWorkspaceService(files); var pool = new SkillPoolService(new MajoWorkingDirectory(root.toString()), files, workspaceSkills, new SkillZipImportService(workspaceSkills));
+        var workspaceSkills = new SkillWorkspaceService(files); var pool = new SkillPoolService(new MajoWorkingDirectory(root.toString()), files, workspaceSkills, new SkillZipImportService(workspaceSkills), null);
         pool.create("review", "---\nname: review\ndescription: Review\n---\nCheck.", null, null, null, "");
         assertThat(pool.batchDelete(List.of("review", "absent"))).containsEntry("deleted", List.of("review")).containsEntry("failed", List.of("absent"));
     }

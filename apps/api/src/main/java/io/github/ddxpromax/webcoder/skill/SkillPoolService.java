@@ -3,6 +3,7 @@ package io.github.ddxpromax.webcoder.skill;
 import io.agentscope.harness.agent.skill.curator.SkillSecurityScanner;
 import io.github.ddxpromax.webcoder.agent.JsonFileStore;
 import io.github.ddxpromax.webcoder.agent.MajoWorkingDirectory;
+import io.github.ddxpromax.webcoder.agent.AgentStore;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -22,16 +23,18 @@ public class SkillPoolService {
     private final JsonFileStore files;
     private final SkillWorkspaceService workspaceSkills;
     private final SkillZipImportService zipImport;
+    private final AgentStore agents;
     private Map<String, Object> activeManifest;
     private Map<String, Object> activeEntries;
 
     public SkillPoolService(MajoWorkingDirectory working, JsonFileStore files,
                             SkillWorkspaceService workspaceSkills,
-                            SkillZipImportService zipImport) {
+                            SkillZipImportService zipImport, AgentStore agents) {
         this.root = working.resolve("skill_pool");
         this.files = files;
         this.workspaceSkills = workspaceSkills;
         this.zipImport = zipImport;
+        this.agents = agents;
     }
 
     public synchronized List<Map<String, Object>> list() {
@@ -185,6 +188,12 @@ public class SkillPoolService {
         reconcile();
         String normalized = checkedName(name); Map<String,Object> entry=map(entries().get(normalized)); if(entry.isEmpty()) return false;
         entry.put("auto_update", enabled); if(targets == null || targets.isEmpty()) entry.remove("auto_update_targets"); else entry.put("auto_update_targets", targets); entries().put(normalized,entry); save(); return true;
+    }
+    public synchronized Map<String,Object> syncAutoUpdate(String name) {
+        reconcile(); Map<String,Object> entry=map(entries().get(checkedName(name))); if(entry.isEmpty())return Map.of("synced",List.of(),"failed",List.of());
+        List<String> synced=new ArrayList<>(),failed=new ArrayList<>();
+        for(Object target:entry.get("auto_update_targets") instanceof List<?> values?values:List.of()) { String agentId=String.valueOf(target); try { Map<String,Object> result=download(agents.workspaceDirForAgent(agentId),name,true,false); if(Boolean.TRUE.equals(result.get("success")))synced.add(agentId);else failed.add(agentId); } catch(Exception exception){failed.add(agentId);} }
+        return Map.of("synced",synced,"failed",failed,"checked",synced.size()+failed.size());
     }
 
     private boolean update(String name, String key, Object value) { String normalized=checkedName(name); Map<String,Object> entry=map(entries().get(normalized)); if(entry.isEmpty()) return false; entry.put(key,value); entries().put(normalized,entry); save(); return true; }
