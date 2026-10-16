@@ -32,6 +32,7 @@ public class SkillsController {
     private final SkillDependencyService dependencies;
     private final SkillHubSearchService hubSearch;
     private final SkillHubInstallService hubInstall;
+    private final SkillPoolService pool;
     private final ObjectMapper mapper;
 
     public SkillsController(
@@ -39,6 +40,7 @@ public class SkillsController {
         AgentStore agents,
         SkillZipImportService zipImport, SkillDependencyService dependencies,
         SkillHubSearchService hubSearch, SkillHubInstallService hubInstall,
+        SkillPoolService pool,
         ObjectMapper mapper
     ) {
         this.skills = skills;
@@ -47,6 +49,7 @@ public class SkillsController {
         this.dependencies = dependencies;
         this.hubSearch = hubSearch;
         this.hubInstall = hubInstall;
+        this.pool = pool;
         this.mapper = mapper;
     }
 
@@ -109,6 +112,39 @@ public class SkillsController {
         @PathVariable String taskId
     ) {
         return Map.of("task_id", taskId, "status", hubInstall.cancel(taskId));
+    }
+
+    @GetMapping("/skills/pool")
+    public List<Map<String, Object>> listPool() { return pool.list(); }
+
+    @PostMapping("/skills/pool/refresh")
+    public List<Map<String, Object>> refreshPool() { return pool.list(); }
+
+    @PostMapping("/skills/pool/create")
+    public Map<String, Object> createPool(@RequestBody Map<String, Object> body) {
+        return pool.create(text(body.get("name")), text(body.get("content")),
+            asMap(body.get("references")), asMap(body.get("scripts")),
+            asMap(body.get("config")), "");
+    }
+
+    @PostMapping({"/skills/pool/upload", "/agents/{agentId}/skills/pool/upload"})
+    public Map<String, Object> uploadToPool(@PathVariable(required = false) String agentId,
+        @RequestBody Map<String, Object> body, HttpServletRequest request) {
+        return pool.upload(workspace(agentId, request), text(body.get("skill_name")),
+            Boolean.TRUE.equals(body.get("overwrite")), Boolean.TRUE.equals(body.get("preview_only")));
+    }
+
+    @PostMapping({"/skills/pool/download", "/agents/{agentId}/skills/pool/download"})
+    public Map<String, Object> downloadFromPool(@PathVariable(required = false) String agentId,
+        @RequestBody Map<String, Object> body, HttpServletRequest request) {
+        return pool.download(workspace(agentId, request), text(body.get("skill_name")),
+            Boolean.TRUE.equals(body.get("overwrite")), Boolean.TRUE.equals(body.get("preview_only")));
+    }
+
+    @DeleteMapping("/skills/pool/{name}")
+    public Map<String, Object> deletePool(@PathVariable String name) {
+        if (!pool.delete(name)) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Skill not found");
+        return Map.of("deleted", true);
     }
 
     @PostMapping({"/skills", "/agents/{agentId}/skills"})
