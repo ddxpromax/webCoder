@@ -13,13 +13,10 @@ public class ChannelAdaptersConfiguration {
     @Bean Channel discordChannel() { return unsupported("discord", "Discord adapter has not been configured."); }
     @Bean Channel dingtalkChannel() { return unsupported("dingtalk", "DingTalk adapter has not been configured."); }
     @Bean Channel feishuChannel() { return unsupported("feishu", "Feishu adapter has not been configured."); }
-    @Bean Channel qqChannel() { return unsupported("qq", "QQ adapter has not been configured."); }
     @Bean Channel slackChannel() { return unsupported("slack", "Slack adapter has not been configured."); }
     @Bean Channel mqttChannel() { return unsupported("mqtt", "MQTT requires an MQTT client integration."); }
     @Bean Channel matrixChannel() { return unsupported("matrix", "Matrix adapter has not been configured."); }
     @Bean Channel mattermostChannel() { return unsupported("mattermost", "Mattermost adapter has not been configured."); }
-    @Bean Channel wecomChannel() { return unsupported("wecom", "WeCom adapter has not been configured."); }
-    @Bean Channel wechatChannel() { return unsupported("wechat", "WeChat relay adapter has not been configured."); }
     @Bean Channel voiceChannel() { return unsupported("voice", "Voice requires a telephony integration."); }
     @Bean Channel sipChannel() { return unsupported("sip", "SIP requires a gateway integration."); }
     @Bean Channel xiaoyiChannel() { return unsupported("xiaoyi", "Xiaoyi uses a private protocol."); }
