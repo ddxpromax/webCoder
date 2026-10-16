@@ -10,7 +10,6 @@ public class ChannelAdaptersConfiguration {
     @Bean Channel consoleChannel() { return new ConsoleChannel(); }
     @Bean Channel imessageChannel() { return unsupported("imessage", "iMessage requires macOS integration."); }
     @Bean Channel dingtalkChannel() { return unsupported("dingtalk", "DingTalk adapter has not been configured."); }
-    @Bean Channel feishuChannel() { return unsupported("feishu", "Feishu adapter has not been configured."); }
     @Bean Channel mqttChannel() { return unsupported("mqtt", "MQTT requires an MQTT client integration."); }
     @Bean Channel voiceChannel() { return unsupported("voice", "Voice requires a telephony integration."); }
     @Bean Channel sipChannel() { return unsupported("sip", "SIP requires a gateway integration."); }
