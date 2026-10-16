@@ -22,7 +22,7 @@ public class BuiltinSkillService {
     }
     public Map<String,Object> importSkills(List<String> names, boolean overwrite) {
         List<String> imported=new ArrayList<>(), conflicts=new ArrayList<>();
-        for(String name:names){try{Bundle bundle=read(name);Map<String,Object> result=pool.create(name,bundle.content(),bundle.references(),bundle.scripts(),bundle.extra(),null,"builtin");if(Boolean.TRUE.equals(result.get("success")))imported.add(name);else if(overwrite){pool.save(name,name,bundle.content(),null,true);imported.add(name);}else conflicts.add(name);}catch(Exception e){conflicts.add(name);}}
+        for(String name:names){try{Bundle bundle=read(name);Map<String,Object> result=pool.create(name,bundle.content(),bundle.references(),bundle.scripts(),bundle.extra(),null,"builtin");if(Boolean.TRUE.equals(result.get("success")))imported.add(name);else if(overwrite&&Boolean.TRUE.equals(pool.replace(name,bundle.content(),bundle.references(),bundle.scripts(),bundle.extra(),"builtin").get("success")))imported.add(name);else conflicts.add(name);}catch(Exception e){conflicts.add(name);}}
         return Map.of("imported",imported,"conflicts",conflicts);
     }
     public Map<String,Object> notice() {

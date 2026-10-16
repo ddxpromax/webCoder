@@ -69,6 +69,17 @@ public class SkillPoolService {
         return create(name, content, references, scripts, null, config, installedFrom);
     }
 
+    public synchronized Map<String,Object> replace(String name, String content,
+                                                    Map<String,Object> references, Map<String,Object> scripts,
+                                                    Map<String,Object> extraFiles, String installedFrom) {
+        reconcile(); String normalized=checkedName(name); if(!Files.exists(root.resolve(normalized)))return Map.of("success",false,"reason","not_found");
+        Path staged=null; try { staged=Files.createTempDirectory(root.getParent(),"majo-pool-replace-");
+            Map<String,Object> created=workspaceSkills.create(staged,normalized,content,references,scripts,extraFiles,null,false);
+            if(!Boolean.TRUE.equals(created.get("success")))return created; replaceCopy(staged.resolve("skills").resolve(normalized),root.resolve(normalized));
+            Map<String,Object> entry=map(entries().get(normalized)); entry.put("source","builtin".equals(installedFrom)?"builtin":"customized"); entry.put("installed_from",installedFrom); entries().put(normalized,entry);save(); return Map.of("success",true,"name",normalized);
+        } catch(IOException exception){throw new IllegalStateException("Could not replace pool skill",exception);} finally{deleteTree(staged);}
+    }
+
     public synchronized Map<String, Object> create(String name, String content,
                                                     Map<String, Object> references,
                                                     Map<String, Object> scripts,
