@@ -18,6 +18,7 @@ import InboxPage from '@/majo/InboxPage.vue'
 import BackupsPage from '@/majo/BackupsPage.vue'
 import CheckpointsPage from '@/majo/CheckpointsPage.vue'
 import SecurityPage from '@/majo/SecurityPage.vue'
+import AppsPage from '@/majo/AppsPage.vue'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -33,6 +34,7 @@ const router = createRouter({
         { path: 'sessions', component: SessionsPage },
         { path: 'files', component: FilesPage },
         { path: 'agents', component: AgentsPage },
+        { path: 'apps', component: AppsPage },
         { path: 'models', component: ModelsPage },
         { path: 'settings', component: SettingsPage },
         { path: 'settings/environments', component: EnvironmentsPage },

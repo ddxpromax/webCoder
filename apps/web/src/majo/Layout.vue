@@ -13,6 +13,7 @@ const nav = [
   { label: 'Sessions', to: '/sessions', icon: '▣' },
   { label: 'Files', to: '/files', icon: '▤' },
   { label: 'Agents', to: '/agents', icon: '◉' },
+  { label: 'Apps', to: '/apps', icon: '▰' },
   { label: 'Models', to: '/models', icon: '◇' },
   { label: 'Tools', to: '/tools', icon: '⌁' },
   { label: 'Skills', to: '/skills', icon: '✦' },
