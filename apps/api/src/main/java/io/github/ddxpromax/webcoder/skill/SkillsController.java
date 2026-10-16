@@ -29,17 +29,19 @@ public class SkillsController {
     private final SkillWorkspaceService skills;
     private final AgentStore agents;
     private final SkillZipImportService zipImport;
+    private final SkillDependencyService dependencies;
     private final ObjectMapper mapper;
 
     public SkillsController(
         SkillWorkspaceService skills,
         AgentStore agents,
-        SkillZipImportService zipImport,
+        SkillZipImportService zipImport, SkillDependencyService dependencies,
         ObjectMapper mapper
     ) {
         this.skills = skills;
         this.agents = agents;
         this.zipImport = zipImport;
+        this.dependencies = dependencies;
         this.mapper = mapper;
     }
 
@@ -292,6 +294,13 @@ public class SkillsController {
         return Map.of("content", skills.loadFile(
             workspace(agentId, request), name, relative
         ));
+    }
+
+    @GetMapping({"/skills/{name}/dependencies", "/agents/{agentId}/skills/{name}/dependencies"})
+    public Map<String, Object> dependencies(@PathVariable(required = false) String agentId, @PathVariable String name, HttpServletRequest request) {
+        Path root = workspace(agentId, request);
+        String content = skills.list(root).stream().filter(skill -> name.equals(skill.get("name"))).map(skill -> String.valueOf(skill.get("content"))).findFirst().orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Skill not found"));
+        return dependencies.check(root, name, content);
     }
 
     @PutMapping({
