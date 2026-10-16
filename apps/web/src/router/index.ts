@@ -15,6 +15,7 @@ import SkillsPage from '@/majo/SkillsPage.vue'
 import LoginPage from '@/majo/LoginPage.vue'
 import CronPage from '@/majo/CronPage.vue'
 import InboxPage from '@/majo/InboxPage.vue'
+import BackupsPage from '@/majo/BackupsPage.vue'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -39,6 +40,7 @@ const router = createRouter({
         { path: 'skills', component: SkillsPage },
         { path: 'cron', component: CronPage },
         { path: 'inbox', component: InboxPage },
+        { path: 'backups', component: BackupsPage },
       ],
     },
   ],

@@ -19,6 +19,7 @@ const nav = [
   { label: 'MCP', to: '/mcp', icon: '⌘' },
   { label: 'Scheduled jobs', to: '/cron', icon: '◷' },
   { label: 'Inbox', to: '/inbox', icon: '✉' },
+  { label: 'Backups', to: '/backups', icon: '▧' },
 ]
 
 async function refresh() {
