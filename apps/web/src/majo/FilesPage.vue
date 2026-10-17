@@ -19,6 +19,8 @@ const error = ref('')
 const notice = ref('')
 const showGraph = ref(false)
 const graphRevision = ref(0)
+const uploadInput = ref<HTMLInputElement | null>(null)
+const uploading = ref(false)
 
 function endpoint(name?: string) {
   return `/workspace/${section.value}${name ? `/${name.split('/').map(encodeURIComponent).join('/')}` : ''}`
@@ -90,6 +92,26 @@ async function save() {
   }
 }
 
+function downloadWorkspace() {
+  window.open(`/api/agents/${encodeURIComponent(workbench.agentId)}/workspace/download`, '_blank')
+}
+
+function chooseZip() { uploadInput.value?.click() }
+
+async function uploadWorkspace(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  if (!file.name.toLowerCase().endsWith('.zip')) { error.value = 'Choose a ZIP archive.'; input.value = ''; return }
+  uploading.value = true; error.value = ''; notice.value = ''
+  try {
+    const form = new FormData(); form.append('file', file)
+    const result = await apiRequest<{ message: string }>('/workspace/upload', { method: 'POST', body: form }, workbench.agentId)
+    notice.value = result.message; await refresh()
+  } catch (cause) { error.value = cause instanceof Error ? cause.message : 'Could not import the workspace ZIP.' }
+  finally { uploading.value = false; input.value = '' }
+}
+
 watch([section, () => workbench.agentId], () => void refresh())
 onMounted(() => void refresh())
 </script>
@@ -102,6 +124,9 @@ onMounted(() => void refresh())
         <h1>Files</h1>
       </div>
       <div class="model-list-header">
+        <input ref="uploadInput" class="visually-hidden" type="file" accept=".zip,application/zip" @change="uploadWorkspace" />
+        <button :disabled="uploading" @click="chooseZip">{{ uploading ? 'Importing…' : 'Import ZIP' }}</button>
+        <button :disabled="uploading" @click="downloadWorkspace">Download ZIP</button>
         <button v-if="section === 'memory'" @click="reindexMemory">Reindex</button>
         <button v-if="section === 'memory'" @click="showGraph = true">Graph</button>
         <button @click="refresh">Refresh</button>

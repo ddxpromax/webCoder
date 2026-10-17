@@ -876,6 +876,7 @@ a {
   margin-top: 12px;
 }
 .debug-log { max-height: 480px; overflow: auto; white-space: pre-wrap; word-break: break-word; border: 1px solid #353535; border-radius: 8px; background: #181818; padding: 12px; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .model-list-header {
   display: flex;
   align-items: center;
