@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   createChat,
+  apiRequest,
   decideApproval,
   getChat,
   getLoopStatus,
@@ -34,9 +35,14 @@ const loopModes = ref<LoopMode[]>([])
 const selectedLoop = ref('')
 const activeLoop = ref('')
 const transcript = ref<HTMLElement | null>(null)
+const recording = ref(false)
+const transcribing = ref(false)
 let turnController: AbortController | null = null
 let approvalsTimer: ReturnType<typeof setInterval> | null = null
 let requestVersion = 0
+let recorder: MediaRecorder | null = null
+let recordingStream: MediaStream | null = null
+let recordingTimer: number | null = null
 
 async function scrollToBottom() {
   await nextTick()
@@ -173,6 +179,35 @@ async function stop() {
   }
 }
 
+async function toggleRecording() {
+  if (recording.value) { recorder?.stop(); return }
+  if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+    error.value = 'Voice recording is not supported by this browser.'; return
+  }
+  try {
+    recordingStream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    const mime = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/mp4'
+    const chunks: Blob[] = []
+    recorder = new MediaRecorder(recordingStream, { mimeType: mime })
+    recorder.ondataavailable = (event) => { if (event.data.size) chunks.push(event.data) }
+    recorder.onstop = async () => {
+      if (recordingTimer) window.clearTimeout(recordingTimer)
+      recordingTimer = null; recording.value = false
+      recordingStream?.getTracks().forEach((track) => track.stop()); recordingStream = null
+      const form = new FormData(); form.append('file', new Blob(chunks, { type: mime }), 'recording.webm')
+      transcribing.value = true
+      try {
+        const result = await apiRequest<{ text: string }>('/workspace/transcribe', { method: 'POST', body: form }, workbench.agentId)
+        if (result.text) prompt.value = prompt.value ? `${prompt.value} ${result.text}` : result.text
+        else error.value = 'No transcription was returned. Configure a transcription provider in Settings.'
+      } catch (cause) { error.value = cause instanceof Error ? cause.message : 'Could not transcribe recording.' }
+      finally { transcribing.value = false; recorder = null }
+    }
+    recorder.start(); recording.value = true
+    recordingTimer = window.setTimeout(() => recorder?.stop(), 5 * 60 * 1000)
+  } catch (cause) { error.value = cause instanceof Error ? cause.message : 'Could not access the microphone.' }
+}
+
 watch(
   [chatId, () => workbench.agentId],
   ([id]) => {
@@ -198,6 +233,7 @@ onMounted(() => void loadLoopModes())
 onBeforeUnmount(() => {
   if (approvalsTimer) clearInterval(approvalsTimer)
   turnController?.abort()
+  if (recording.value) recorder?.stop()
 })
 </script>
 
@@ -263,6 +299,7 @@ onBeforeUnmount(() => {
         />
         <div class="composer-footer">
           <label class="loop-mode"><span>Mode</span><select v-model="selectedLoop" :disabled="sending"><option value="">Standard</option><option v-for="mode in loopModes.filter((item) => item.id !== 'default')" :key="mode.id" :value="mode.id">{{ mode.name }}</option></select></label>
+          <button type="button" :disabled="sending || transcribing" @click="toggleRecording">{{ transcribing ? 'Transcribing…' : recording ? 'Stop recording' : 'Record voice' }}</button>
           <span>{{
             workbench.agents.find((agent) => agent.id === workbench.agentId)?.name || 'Majo'
           }}</span>
