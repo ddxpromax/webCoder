@@ -40,14 +40,14 @@ public class ToolConfigService {
         def("spawn_subagent", "Spawn an ephemeral sub-task", "🔀"),
         def("delegate_external_agent", "Delegate to an ACP agent", "📡"),
         def("materialize_skill", "Materialize a skill", "🧩"),
+        def("find_symbol", "Find code symbol definitions", "🔖"),
         def("ast_search", "Search code by AST pattern", "🌳"),
         def("memory_search", "Search persistent agent memory", "🧠")
     );
     private static final Map<String, String> NAMES = Map.ofEntries(
         Map.entry("search_code", "grep_search"),
         Map.entry("list_directory", "glob_search"),
-        Map.entry("execute_command", "execute_shell_command"),
-        Map.entry("find_symbol", "ast_search")
+        Map.entry("execute_command", "execute_shell_command")
     );
 
     private final AgentStore agents;

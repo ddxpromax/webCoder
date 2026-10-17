@@ -64,6 +64,17 @@ class ToolConfigServiceTests {
             .contains("disabled");
     }
 
+    @Test
+    void exposesFindSymbolSeparatelyFromMajoAstSearch() {
+        ToolConfigService tools = new ToolConfigService(agents());
+
+        assertThat(tools.find("default", "find_symbol"))
+            .containsEntry("name", "find_symbol");
+        assertThat(tools.isEnabled("default", "find_symbol")).isTrue();
+        assertThat(tools.find("default", "ast_search"))
+            .containsEntry("name", "ast_search");
+    }
+
     private AgentStore agents() {
         return new AgentStore(
             new MajoWorkingDirectory(directory.toString()),
