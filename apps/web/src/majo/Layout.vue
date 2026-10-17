@@ -1,13 +1,22 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
-import { deleteChat, listAgents, listChats } from './api'
+import { archiveChat, deleteChat, listAgents, listChats, updateChat } from './api'
 import { selectAgent, workbench } from './state'
 import { pluginRoutes } from './pluginRuntime'
 
 const route = useRoute()
 const router = useRouter()
 const sidebarOpen = ref(true)
+const showArchived = ref(false)
+const search = ref('')
+const archivedChats = ref<typeof workbench.chats>([])
+const visibleChats = computed(() => {
+  const query = search.value.trim().toLowerCase()
+  const source = showArchived.value ? archivedChats.value : workbench.chats
+  return source.filter((chat) => !query || chat.name.toLowerCase().includes(query))
+    .sort((left, right) => Number(Boolean(right.pinned)) - Number(Boolean(left.pinned)))
+})
 const nav = [
   { label: 'Chat', to: '/chat', icon: '◈' },
   { label: 'Coding', to: '/coding', icon: '⌘' },
@@ -30,15 +39,28 @@ const nav = [
 async function refresh() {
   workbench.loading = true
   try {
-    const [agents, chats] = await Promise.all([listAgents(), listChats(workbench.agentId)])
+    const [agents, chats, archived] = await Promise.all([listAgents(), listChats(workbench.agentId), listChats(workbench.agentId, true)])
     workbench.agents = agents.agents
     workbench.chats = chats
+    archivedChats.value = archived
     workbench.error = ''
   } catch (cause) {
     workbench.error = cause instanceof Error ? cause.message : 'Could not load workspace.'
   } finally {
     workbench.loading = false
   }
+}
+
+async function togglePinned(id: string, pinned: boolean) {
+  try { await updateChat(id, workbench.agentId, { pinned: !pinned }); await refresh() }
+  catch (cause) { workbench.error = cause instanceof Error ? cause.message : 'Could not update the chat.' }
+}
+
+async function toggleArchived(id: string, archived: boolean) {
+  try {
+    await archiveChat(id, workbench.agentId, !archived); await refresh()
+    if (route.params.id === id) await router.push('/chat')
+  } catch (cause) { workbench.error = cause instanceof Error ? cause.message : 'Could not update the chat.' }
 }
 
 function changeAgent(event: Event) {
@@ -97,9 +119,10 @@ onBeforeUnmount(() => window.removeEventListener('majo-chats-changed', refresh))
             <span class="nav-icon">{{ plugin.icon || '◇' }}</span>{{ plugin.label }}
           </RouterLink>
         </nav>
-        <div class="sidebar-section-title">RECENT CHATS</div>
+        <div class="sidebar-section-title">{{ showArchived ? 'ARCHIVED CHATS' : 'RECENT CHATS' }}</div>
+        <div class="chat-history-controls"><input v-model="search" aria-label="Search chats" placeholder="Search chats" /><button @click="showArchived = !showArchived">{{ showArchived ? 'Recent' : 'Archived' }}</button></div>
         <div class="session-list">
-          <div v-for="chat in workbench.chats" :key="chat.id" class="session-row">
+          <div v-for="chat in visibleChats" :key="chat.id" class="session-row">
             <RouterLink
               :to="`/chat/${encodeURIComponent(chat.id)}`"
               class="session-link"
@@ -107,6 +130,8 @@ onBeforeUnmount(() => window.removeEventListener('majo-chats-changed', refresh))
             >
               {{ chat.name || 'New chat' }}
             </RouterLink>
+            <button class="session-delete" :aria-label="`${chat.pinned ? 'Unpin' : 'Pin'} ${chat.name}`" :title="chat.pinned ? 'Unpin' : 'Pin'" @click="togglePinned(chat.id, Boolean(chat.pinned))">{{ chat.pinned ? '★' : '☆' }}</button>
+            <button class="session-delete" :aria-label="`${showArchived ? 'Restore' : 'Archive'} ${chat.name}`" :title="showArchived ? 'Restore' : 'Archive'" @click="toggleArchived(chat.id, showArchived)">{{ showArchived ? '↩' : '▱' }}</button>
             <button
               class="session-delete"
               :aria-label="`Delete ${chat.name}`"
@@ -116,7 +141,7 @@ onBeforeUnmount(() => window.removeEventListener('majo-chats-changed', refresh))
               ×
             </button>
           </div>
-          <p v-if="!workbench.chats.length && !workbench.loading" class="sidebar-empty">
+          <p v-if="!visibleChats.length && !workbench.loading" class="sidebar-empty">
             No chats yet
           </p>
         </div>

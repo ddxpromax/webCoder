@@ -206,8 +206,8 @@ export function updateAgentRunningConfig(agentId: string, config: AgentRunningCo
   )
 }
 
-export function listChats(agentId: string) {
-  return apiRequest<ChatSpec[]>('/chats?archived=false', {}, agentId)
+export function listChats(agentId: string, archived = false) {
+  return apiRequest<ChatSpec[]>(`/chats?archived=${archived}`, {}, agentId)
 }
 
 export function createChat(agentId: string) {
@@ -224,6 +224,14 @@ export function deleteChat(chatId: string, agentId: string) {
     { method: 'DELETE' },
     agentId,
   )
+}
+
+export function archiveChat(chatId: string, agentId: string, archived: boolean) {
+  return apiRequest<ChatSpec>(`/chats/${encodeURIComponent(chatId)}/${archived ? 'archive' : 'unarchive'}`, { method: 'POST' }, agentId)
+}
+
+export function updateChat(chatId: string, agentId: string, values: { name?: string; pinned?: boolean }) {
+  return apiRequest<ChatSpec>(`/chats/${encodeURIComponent(chatId)}`, { method: 'PUT', body: JSON.stringify(values) }, agentId)
 }
 
 export function stopChat(chatId: string, agentId: string) {

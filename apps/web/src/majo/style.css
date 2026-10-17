@@ -169,6 +169,9 @@ a {
   font-size: 12px;
   padding: 0 12px;
 }
+.chat-history-controls { display: flex; gap: 6px; padding: 0 8px 8px; }
+.chat-history-controls input { min-width: 0; flex: 1; padding: 6px 8px; font-size: 12px; }
+.chat-history-controls button { padding: 5px 7px; font-size: 11px; }
 .sidebar-bottom {
   border-top: 1px solid #2d2d2d;
   padding-top: 8px;
