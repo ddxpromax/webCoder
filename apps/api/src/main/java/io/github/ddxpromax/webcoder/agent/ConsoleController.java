@@ -8,9 +8,17 @@ import io.agentscope.harness.agent.HarnessAgent;
 import io.github.ddxpromax.webcoder.chat.ChatEntity;
 import io.github.ddxpromax.webcoder.chat.ChatService;
 import io.github.ddxpromax.webcoder.model.ModelRoutingService;
-import io.github.ddxpromax.webcoder.loop.LoopDecision;
-import io.github.ddxpromax.webcoder.loop.LoopGates;
+import io.github.ddxpromax.webcoder.loop.CompletionGate;
+import io.github.ddxpromax.webcoder.loop.DoomLoopGate;
+import io.github.ddxpromax.webcoder.loop.IterationGate;
+import io.github.ddxpromax.webcoder.loop.LoopCompiler;
+import io.github.ddxpromax.webcoder.loop.LoopContext;
+import io.github.ddxpromax.webcoder.loop.LoopGate;
 import io.github.ddxpromax.webcoder.loop.LoopSessionManager;
+import io.github.ddxpromax.webcoder.loop.StopHandler;
+import io.github.ddxpromax.webcoder.loop.StopHandlerResult;
+import io.github.ddxpromax.webcoder.loop.TimeoutGate;
+import io.github.ddxpromax.webcoder.loop.TokenBudgetGate;
 import jakarta.servlet.http.HttpServletRequest;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -259,9 +267,19 @@ public class ConsoleController {
         }
         RuntimeContext context = RuntimeContext.builder().sessionId(sessionId)
             .userId(text(body.get("user_id"), "web-user")).build();
-        LoopSessionManager.Session session = loops.start(sessionId, command.modeId,
-            command.displayName, command.goal, command.maxIterations, command.maxTokens,
-            command.timeoutSeconds, command.completionGate, command.completionSignals, command.maxCompletionChecks);
+        StopHandler handler;
+        try {
+            handler = buildLoopHandler(command.modeId, agentId);
+        } catch (IllegalArgumentException exception) {
+            tasks.setDone(chatId);
+            chats.setStatus(chatId, "idle");
+            try { agentFactory.close(agent); } catch (Exception ignored) { }
+            return Flux.just(events.error(exception.getMessage()));
+        }
+        LoopSessionManager.LoopSession session = loops.start(
+            sessionId, command.modeId, command.displayName, command.goal,
+            handler
+        );
         LoopAggregate aggregate = new LoopAggregate();
         String responseId = "response_" + UUID.randomUUID().toString().replace("-", "");
         long startedAt = System.currentTimeMillis();
@@ -280,41 +298,48 @@ public class ConsoleController {
     }
 
     private Flux<String> streamLoopTurn(HarnessAgent agent, String prompt, RuntimeContext context,
-                                         LoopSessionManager.Session session, LoopAggregate aggregate, QwenEvents events) {
+                                         LoopSessionManager.LoopSession session, LoopAggregate aggregate, QwenEvents events) {
+        session.iteration++;
         TurnState turn = new TurnState(); UserMessage message = new UserMessage(prompt);
         return OverflowRecovery.recover(agent.streamEvents(message, context), agent, message, context)
             .concatMap(event -> Flux.fromIterable(encodeAgentEvent(event, turn, events)))
             .concatWith(Flux.defer(() -> {
                 aggregate.messages.addAll(turn.completedMessages); aggregate.inputTokens += turn.inputTokens; aggregate.outputTokens += turn.outputTokens;
-                LoopDecision decision = LoopGates.afterTurn(session, turn.text.toString(), turn.inputTokens + turn.outputTokens);
-                session.lastResult = decision.reason();
-                return decision.continueLoop() && loops.active(session.sessionId)
-                    ? streamLoopTurn(agent, decision.continuation(), context, session, aggregate, events)
+                LoopGate.setCurrentSession(session.sessionId);
+                StopHandlerResult result;
+                try {
+                    result = session.handler.run(new LoopContext(
+                        session.iteration, turn.hasToolCalls,
+                        turn.text.toString(), turn.lastToolCall,
+                        turn.inputTokens + turn.outputTokens
+                    ));
+                } finally {
+                    LoopGate.clearCurrentSession();
+                }
+                session.lastResult = result.reason;
+                return result.isContinue() && loops.isActive(session.sessionId)
+                    ? streamLoopTurn(agent, result.continuationMessage, context, session, aggregate, events)
                     : Flux.empty();
             }));
     }
 
     private LoopCommand parseLoopCommand(String prompt, String agentId) {
         String trimmed = prompt == null ? "" : prompt.stripLeading();
-        if (trimmed.startsWith("/goal")) return builtinLoop("goal", trimmed.substring(5).trim(), agentId);
-        if (trimmed.startsWith("/mission")) return builtinLoop("mission", trimmed.substring(8).trim(), agentId);
+        if (trimmed.startsWith("/goal")) return builtinLoop("goal", trimmed.substring(5).trim());
+        if (trimmed.startsWith("/mission")) return builtinLoop("mission", trimmed.substring(8).trim());
         if (!trimmed.startsWith("/")) return null;
         int split = trimmed.indexOf(' '); String slash = split < 0 ? trimmed.substring(1) : trimmed.substring(1, split);
         for (Map<String, Object> mode : customModes(agentId)) {
             if (slash.equalsIgnoreCase(text(mode.get("slash_command"), ""))) {
-                LoopPolicy policy = customPolicy(mode);
-                return new LoopCommand("custom:" + text(mode.get("id"), slash), slash, split < 0 ? "" : trimmed.substring(split + 1).trim(), policy.maxIterations, policy.maxTokens, policy.timeoutSeconds, policy.completionGate, policy.signals, policy.maxCompletionChecks);
+                return new LoopCommand("custom:" + text(mode.get("id"), slash),
+                    slash, split < 0 ? "" : trimmed.substring(split + 1).trim());
             }
         }
         return null;
     }
 
-    private LoopCommand builtinLoop(String mode, String goal, String agentId) {
-        Map<String, Object> running = agents.getRunningConfig(agentId);
-        @SuppressWarnings("unchecked") Map<String, Object> loop = running.get("loop") instanceof Map<?, ?> map ? (Map<String, Object>) map : Map.of();
-        @SuppressWarnings("unchecked") Map<String, Object> config = loop.get(mode) instanceof Map<?, ?> map ? (Map<String, Object>) map : Map.of();
-        boolean completion = "goal".equals(mode);
-        return new LoopCommand(mode, mode, goal, integer(config.get("max_iterations"), 20), integer(config.get("max_tokens"), 300_000), "mission".equals(mode) ? 1800 : 0, completion, List.of("completed", "done", "finished"), 10);
+    private LoopCommand builtinLoop(String mode, String goal) {
+        return new LoopCommand(mode, mode, goal);
     }
 
     @SuppressWarnings("unchecked") private List<Map<String, Object>> customModes(String agentId) {
@@ -322,20 +347,28 @@ public class ConsoleController {
         Object rawModes = loop.get("custom_modes"); if (!(rawModes instanceof List<?> modes)) return List.of();
         List<Map<String, Object>> result = new ArrayList<>(); for (Object mode : modes) if (mode instanceof Map<?, ?> item) result.add(new LinkedHashMap<>((Map<String, Object>) item)); return result;
     }
-    @SuppressWarnings("unchecked") private LoopPolicy customPolicy(Map<String, Object> mode) {
-        int iterations = 20; long tokens = 300_000; long timeout = 0; boolean completion = false; List<String> signals = List.of("completed", "done", "finished"); int checks = 3;
-        Object raw = mode.get("gates"); if (raw instanceof List<?> gates) for (Object item : gates) if (item instanceof Map<?, ?> gate && Boolean.TRUE.equals(gate.get("enabled"))) {
-            String type = text(gate.get("type"), ""); Map<String, Object> params = gate.get("params") instanceof Map<?, ?> map ? (Map<String, Object>) map : Map.of();
-            if ("iteration".equals(type)) iterations = integer(params.get("max_iterations"), iterations);
-            else if ("token_budget".equals(type)) tokens = integer(params.get("max_total_tokens"), (int) tokens);
-            else if ("timeout".equals(type)) timeout = integer(params.get("max_seconds"), 1);
-            else if ("completion_rubric".equals(type) || "qualitative_rubric".equals(type)) { completion = true; String signal = text(params.get("completion_signal"), ""); if (!signal.isBlank()) signals = List.of(signal); }
+    private StopHandler buildLoopHandler(String modeId, String agentId) {
+        if (modeId.startsWith("custom:")) {
+            String id = modeId.substring("custom:".length());
+            for (Map<String, Object> mode : customModes(agentId)) {
+                if (id.equals(text(mode.get("id"), ""))) {
+                    return LoopCompiler.defaultCompiler().compile(mode);
+                }
+            }
+            throw new IllegalArgumentException("Custom loop mode not found: " + id);
         }
-        return new LoopPolicy(iterations, tokens, timeout, completion, signals, checks);
+        StopHandler handler = new StopHandler();
+        handler.register(DoomLoopGate.defaultConfig());
+        handler.register(new IterationGate(20));
+        if ("mission".equals(modeId)) {
+            handler.register(new TimeoutGate(1800));
+        } else {
+            handler.register(new TokenBudgetGate(300_000));
+            handler.register(new CompletionGate(null, 10));
+        }
+        return handler;
     }
-    private static int integer(Object value, int fallback) { return value instanceof Number number && number.intValue() > 0 ? number.intValue() : fallback; }
-    private record LoopPolicy(int maxIterations, long maxTokens, long timeoutSeconds, boolean completionGate, List<String> signals, int maxCompletionChecks) { }
-    private record LoopCommand(String modeId, String displayName, String goal, int maxIterations, long maxTokens, long timeoutSeconds, boolean completionGate, List<String> completionSignals, int maxCompletionChecks) { }
+    private record LoopCommand(String modeId, String displayName, String goal) { }
     private static final class LoopAggregate { int inputTokens; int outputTokens; final List<Map<String, Object>> messages = new ArrayList<>(); }
 
     @PostMapping("/console/chat/stop")
@@ -529,6 +562,15 @@ public class ConsoleController {
                         state.textMessageId, fullText
                     )
                 );
+            case "ToolCallStartEvent":
+                recordToolStart(event, state);
+                return List.of();
+            case "ToolCallDeltaEvent":
+                recordToolDelta(event, state);
+                return List.of();
+            case "ToolCallEndEvent":
+                recordToolEnd(event, state);
+                return List.of();
             case "ModelCallEndEvent":
                 var usage = ((ModelCallEndEvent) event).getUsage();
                 if (usage != null) {
@@ -538,6 +580,50 @@ public class ConsoleController {
                 return List.of();
             default:
                 return List.of();
+        }
+    }
+
+    /** Preserve the structured tool-call arguments emitted as deltas so the
+     * loop doom gate can compare actual calls, not opaque unique call IDs. */
+    private static void recordToolStart(Object event, TurnState state) {
+        try {
+            String id = String.valueOf(event.getClass().getMethod(
+                "getToolCallId").invoke(event));
+            String name = String.valueOf(event.getClass().getMethod(
+                "getToolCallName").invoke(event));
+            state.toolCalls.put(id, new ToolCallAccumulator(name));
+        } catch (ReflectiveOperationException ignored) {
+            // Ignore unknown event shapes; the loop remains safe.
+        }
+    }
+
+    private static void recordToolDelta(Object event, TurnState state) {
+        try {
+            String id = String.valueOf(event.getClass().getMethod(
+                "getToolCallId").invoke(event));
+            ToolCallAccumulator call = state.toolCalls.get(id);
+            if (call != null) {
+                call.input.append(String.valueOf(event.getClass().getMethod(
+                    "getDelta").invoke(event)));
+            }
+        } catch (ReflectiveOperationException ignored) {
+            // Ignore unknown event shapes; the loop remains safe.
+        }
+    }
+
+    private static void recordToolEnd(Object event, TurnState state) {
+        state.hasToolCalls = true;
+        try {
+            String id = String.valueOf(event.getClass().getMethod(
+                "getToolCallId").invoke(event));
+            ToolCallAccumulator call = state.toolCalls.remove(id);
+            String name = call == null ? String.valueOf(event.getClass()
+                .getMethod("getToolCallName").invoke(event)) : call.name;
+            String input = call == null ? "" : call.input.toString();
+            state.lastToolCall = new LoopContext.ToolCallRecord(name,
+                DoomLoopGate.hashArgs(input));
+        } catch (ReflectiveOperationException ignored) {
+            // Ignore unknown event shapes; hasToolCalls stays true.
         }
     }
 
@@ -637,5 +723,18 @@ public class ConsoleController {
         String textMessageId;
         int inputTokens;
         int outputTokens;
+        boolean hasToolCalls;
+        LoopContext.ToolCallRecord lastToolCall;
+        final Map<String, ToolCallAccumulator> toolCalls =
+            new LinkedHashMap<>();
+    }
+
+    private static final class ToolCallAccumulator {
+        final String name;
+        final StringBuilder input = new StringBuilder();
+
+        ToolCallAccumulator(String name) {
+            this.name = name;
+        }
     }
 }

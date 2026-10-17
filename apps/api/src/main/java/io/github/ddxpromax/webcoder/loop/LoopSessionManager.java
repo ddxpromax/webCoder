@@ -1,58 +1,102 @@
 package io.github.ddxpromax.webcoder.loop;
 
-import java.util.LinkedHashMap;
-import java.util.Map;
-import java.util.List;
-import java.util.concurrent.ConcurrentHashMap;
 import org.springframework.stereotype.Component;
 
-/** Session-scoped state for Majo goal, mission, and custom loop modes. */
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+
+/**
+ * Tracks active loop-mode sessions,'s GoalSession registry.
+ * Drives /loops/status (running vs idle) and provides the gate wiring for
+ * goal/mission mode executions.
+ */
 @Component
 public class LoopSessionManager {
-    public static final class Session {
+
+    /** One active loop session bound to a conversation. */
+    public static class LoopSession {
         public final String sessionId;
         public final String modeId;
         public final String modeName;
         public final String goal;
-        public final int maxIterations;
-        public final long maxTokens;
-        public final long timeoutSeconds;
-        public final boolean completionGate;
-        public final List<String> completionSignals;
-        public final int maxCompletionChecks;
-        public final long startedNanos = System.nanoTime();
+        public final StopHandler handler;
+        public volatile String state; // "running" | "awaiting_user" | "idle"
         public volatile int iteration;
-        public volatile int totalTokens;
-        public volatile String state = "running";
         public volatile String lastResult = "";
 
-        Session(String sessionId, String modeId, String modeName, String goal, int maxIterations, long maxTokens, long timeoutSeconds, boolean completionGate, List<String> completionSignals, int maxCompletionChecks) {
-            this.sessionId = sessionId; this.modeId = modeId; this.modeName = modeName; this.goal = goal;
-            this.maxIterations = Math.max(1, maxIterations); this.maxTokens = Math.max(0, maxTokens);
-            this.timeoutSeconds = Math.max(0, timeoutSeconds); this.completionGate = completionGate;
-            this.completionSignals = completionSignals == null ? List.of() : List.copyOf(completionSignals); this.maxCompletionChecks = Math.max(1, maxCompletionChecks);
+        public LoopSession(String sessionId, String modeId, String modeName,
+                           String goal, StopHandler handler) {
+            this.sessionId = sessionId;
+            this.modeId = modeId;
+            this.modeName = modeName;
+            this.goal = goal;
+            this.handler = handler;
+            this.state = "running";
         }
     }
 
-    private final ConcurrentHashMap<String, Session> sessions = new ConcurrentHashMap<>();
-    public Session start(String sessionId, String modeId, String modeName, String goal, int maxIterations, long maxTokens) {
-        return start(sessionId, modeId, modeName, goal, maxIterations, maxTokens, 0, "goal".equals(modeId), List.of("completed", "done", "finished"), 10);
+    private final ConcurrentHashMap<String, LoopSession> sessions = new ConcurrentHashMap<>();
+
+    public LoopSession start(String sessionId, String modeId, String modeName,
+                             String goal, StopHandler handler) {
+        LoopSession session = new LoopSession(sessionId, modeId, modeName, goal, handler);
+        LoopSession prev = sessions.put(sessionId, session);
+        if (prev != null) {
+            prev.handler.resetSession();
+        }
+        return session;
     }
-    public Session start(String sessionId, String modeId, String modeName, String goal, int maxIterations, long maxTokens, long timeoutSeconds, boolean completionGate, List<String> signals, int maxCompletionChecks) {
-        Session next = new Session(sessionId, modeId, modeName, goal, maxIterations, maxTokens, timeoutSeconds, completionGate, signals, maxCompletionChecks);
-        sessions.put(sessionId, next); return next;
+
+    public LoopSession get(String sessionId) {
+        return sessionId == null ? null : sessions.get(sessionId);
     }
-    public Session get(String sessionId) { return sessionId == null ? null : sessions.get(sessionId); }
-    public void end(String sessionId) { Session session = sessions.remove(sessionId); if (session != null) session.state = "idle"; }
-    public boolean active(String sessionId) { Session session = get(sessionId); return session != null && "running".equals(session.state); }
+
+    public void end(String sessionId) {
+        LoopSession session = sessionId == null ? null : sessions.remove(sessionId);
+        if (session != null) {
+            session.state = "idle";
+            session.handler.resetSession();
+        }
+    }
+
+    public void setAwaitingUser(String sessionId) {
+        LoopSession session = get(sessionId);
+        if (session != null) {
+            session.state = "awaiting_user";
+        }
+    }
+
+    public void setRunning(String sessionId) {
+        LoopSession session = get(sessionId);
+        if (session != null) {
+            session.state = "running";
+        }
+    }
+
+    public boolean isActive(String sessionId) {
+        LoopSession session = get(sessionId);
+        return session != null && !"idle".equals(session.state);
+    }
+
+    /** Status payload for /loops/status. */
     public Map<String, Object> status(String sessionId) {
-        Session session = get(sessionId);
+        LoopSession session = get(sessionId);
         if (session == null || "idle".equals(session.state)) {
-            Map<String, Object> idle = new LinkedHashMap<>(); idle.put("state", "idle"); idle.put("mode", null); return idle;
+            Map<String, Object> idle = new LinkedHashMap<>();
+            idle.put("state", "idle");
+            idle.put("mode", null);
+            return idle;
         }
         Map<String, Object> mode = new LinkedHashMap<>();
-        mode.put("id", session.modeId); mode.put("name", session.modeName); mode.put("slash_command", session.modeName);
-        mode.put("description", "Active " + session.modeName + " loop."); mode.put("source", session.modeId.startsWith("custom:") ? "custom" : "builtin");
-        return Map.of("state", session.state, "mode", mode);
+        mode.put("id", session.modeId);
+        mode.put("name", session.modeName);
+        mode.put("slash_command", session.modeName);
+        mode.put("description", "Active " + session.modeName + " loop.");
+        mode.put("source", "builtin");
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("state", session.state);
+        result.put("mode", mode);
+        return result;
     }
 }
