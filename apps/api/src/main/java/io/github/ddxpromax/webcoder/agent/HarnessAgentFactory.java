@@ -11,6 +11,7 @@ import io.github.ddxpromax.webcoder.skill.MaterializeSkillTool;
 import io.github.ddxpromax.webcoder.skill.SkillWorkspaceService;
 import io.github.ddxpromax.webcoder.mcp.McpRuntime;
 import io.github.ddxpromax.webcoder.acp.AcpPermissionBridge;
+import io.github.ddxpromax.webcoder.sandbox.SandboxService;
 import java.nio.file.Path;
 import java.nio.file.Files;
 import java.io.IOException;
@@ -44,6 +45,7 @@ public class HarnessAgentFactory {
     private final SubagentTaskRegistry subagentTasks;
     private final DoomLoopGuard doomLoop;
     private final AcpPermissionBridge acpPermissions;
+    private final SandboxService sandbox;
 
     public HarnessAgentFactory(
         ModelRoutingService routing,
@@ -65,7 +67,8 @@ public class HarnessAgentFactory {
         McpRuntime mcpRuntime,
         SubagentTaskRegistry subagentTasks,
         DoomLoopGuard doomLoop,
-        AcpPermissionBridge acpPermissions
+        AcpPermissionBridge acpPermissions,
+        SandboxService sandbox
     ) {
         this.routing = routing;
         this.providerModels = providerModels;
@@ -87,6 +90,7 @@ public class HarnessAgentFactory {
         this.subagentTasks = subagentTasks;
         this.doomLoop = doomLoop;
         this.acpPermissions = acpPermissions;
+        this.sandbox = sandbox;
     }
 
     public String agentName(String agentId) {
@@ -184,7 +188,9 @@ public class HarnessAgentFactory {
     Toolkit toolkitFor(String agentId, Path workspace) {
         Toolkit toolkit = new Toolkit();
         toolkit.registerTool(new WorkspaceTools(workspace, mutationGate));
-        toolkit.registerTool(new ShellTool(workspace, mutationGate));
+        toolkit.registerTool(new ShellTool(
+            workspace, mutationGate, agentId, sandbox
+        ));
         toolkit.registerTool(new GitTools(workspace, mutationGate));
         toolkit.registerTool(new SubagentTools(
             agentId, workspace, subagents

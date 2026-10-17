@@ -2,6 +2,7 @@ package io.github.ddxpromax.webcoder.agent;
 
 import io.agentscope.core.tool.Tool;
 import io.agentscope.core.tool.ToolParam;
+import io.github.ddxpromax.webcoder.sandbox.SandboxService;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
@@ -18,14 +19,27 @@ public class ShellTool {
 
     private final Path workspace;
     private final WorkspaceMutationGate mutationGate;
+    private final String agentId;
+    private final SandboxService sandbox;
 
     public ShellTool(Path workspace) {
-        this(workspace, LocalWorkspaceMutationGate.shared());
+        this(workspace, LocalWorkspaceMutationGate.shared(), "default", null);
     }
 
     public ShellTool(Path workspace, WorkspaceMutationGate mutationGate) {
+        this(workspace, mutationGate, "default", null);
+    }
+
+    public ShellTool(
+        Path workspace,
+        WorkspaceMutationGate mutationGate,
+        String agentId,
+        SandboxService sandbox
+    ) {
         this.workspace = workspace.toAbsolutePath().normalize();
         this.mutationGate = mutationGate;
+        this.agentId = agentId;
+        this.sandbox = sandbox;
     }
 
     @Tool(
@@ -59,10 +73,14 @@ public class ShellTool {
         }
         Process process = null;
         try (var lease = mutationGate.acquire(workspace)) {
+            if (sandbox != null && sandbox.enabledFor(agentId)) {
+                return sandbox.run(agentId, effective, workspace, timeout);
+            }
             ProcessBuilder builder = windows
                 ? new ProcessBuilder("cmd.exe", "/c", effective)
                 : new ProcessBuilder("sh", "-c", effective);
             builder.directory(workspace.toFile());
+            UserBinPaths.applyTo(builder.environment());
             builder.redirectErrorStream(true);
             process = builder.start();
             Process running = process;
