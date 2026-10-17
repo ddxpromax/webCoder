@@ -40,6 +40,7 @@ public class HarnessAgentFactory {
     private final SkillWorkspaceService skills;
     private final WorkspaceMutationGate mutationGate;
     private final McpRuntime mcpRuntime;
+    private final SubagentTaskRegistry subagentTasks;
 
     public HarnessAgentFactory(
         ModelRoutingService routing,
@@ -58,7 +59,8 @@ public class HarnessAgentFactory {
         TokenUsageService tokenUsage,
         SkillWorkspaceService skills,
         WorkspaceMutationGate mutationGate,
-        McpRuntime mcpRuntime
+        McpRuntime mcpRuntime,
+        SubagentTaskRegistry subagentTasks
     ) {
         this.routing = routing;
         this.providerModels = providerModels;
@@ -77,6 +79,7 @@ public class HarnessAgentFactory {
         this.skills = skills;
         this.mutationGate = mutationGate;
         this.mcpRuntime = mcpRuntime;
+        this.subagentTasks = subagentTasks;
     }
 
     public String agentName(String agentId) {
@@ -178,6 +181,9 @@ public class HarnessAgentFactory {
         toolkit.registerTool(new GitTools(workspace, mutationGate));
         toolkit.registerTool(new SubagentTools(
             agentId, workspace, subagents
+        ));
+        toolkit.registerTool(new DelegateExternalAgentTool(
+            agentId, workspace, agents, subagentTasks
         ));
         toolkit.registerTool(new ListAgentsTool(agents));
         toolkit.registerTool(new MemorySearchTool(

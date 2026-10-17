@@ -31,6 +31,7 @@ public class ApprovalHook implements Hook, RuntimeContextAware {
         "git_branch",
         "send_file_to_user", "browser_use",
         "desktop_screenshot", "execute_command", "bash"
+        , "delegate_external_agent"
     );
 
     private final String agentId;
