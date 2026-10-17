@@ -8,6 +8,7 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -21,6 +22,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.multipart.MultipartFile;
+import reactor.core.publisher.Flux;
 
 /** Majo's workspace skill endpoints, scoped by agent or X-Agent-Id. */
 @RestController
@@ -34,6 +36,7 @@ public class SkillsController {
     private final SkillHubInstallService hubInstall;
     private final SkillPoolService pool;
     private final BuiltinSkillService builtins;
+    private final SkillOptimizationService optimization;
     private final ObjectMapper mapper;
 
     public SkillsController(
@@ -42,6 +45,7 @@ public class SkillsController {
         SkillZipImportService zipImport, SkillDependencyService dependencies,
         SkillHubSearchService hubSearch, SkillHubInstallService hubInstall,
         SkillPoolService pool, BuiltinSkillService builtins,
+        SkillOptimizationService optimization,
         ObjectMapper mapper
     ) {
         this.skills = skills;
@@ -52,6 +56,7 @@ public class SkillsController {
         this.hubInstall = hubInstall;
         this.pool = pool;
         this.builtins = builtins;
+        this.optimization = optimization;
         this.mapper = mapper;
     }
 
@@ -536,7 +541,32 @@ public class SkillsController {
         return Map.of("cleared", true);
     }
 
+    /** Majo's incremental AI skill editor endpoint. */
+    @PostMapping(
+        value = {
+            "/skills/ai/optimize/stream",
+            "/agents/{agentId}/skills/ai/optimize/stream"
+        },
+        produces = MediaType.TEXT_EVENT_STREAM_VALUE
+    )
+    public Flux<String> optimizeStream(
+        @PathVariable(required = false) String agentId,
+        @RequestBody Map<String, Object> body,
+        HttpServletRequest request
+    ) {
+        return optimization.stream(
+            text(body.get("content")), effectiveAgentId(agentId, request)
+        );
+    }
+
     private Path workspace(String explicit, HttpServletRequest request) {
+        return agents.workspaceDirForAgent(effectiveAgentId(explicit, request));
+    }
+
+    private String effectiveAgentId(
+        String explicit,
+        HttpServletRequest request
+    ) {
         String agentId = explicit;
         if (agentId == null || agentId.isBlank()) {
             agentId = request.getHeader("X-Agent-Id");
@@ -547,7 +577,7 @@ public class SkillsController {
         if (agentId == null || agentId.isBlank()) {
             agentId = AgentStore.DEFAULT_AGENT_ID;
         }
-        return agents.workspaceDirForAgent(agentId);
+        return agentId;
     }
 
     private static void require(boolean updated) {
