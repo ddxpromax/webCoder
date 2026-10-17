@@ -20,7 +20,7 @@ public class ApprovalHook implements Hook, RuntimeContextAware {
     private static final long TIMEOUT_MS = 5 * 60 * 1000L;
     private static final Set<String> READ_ONLY_TOOLS = Set.of(
         "read_file", "list_directory", "search_code",
-        "find_symbol", "grep_search", "glob_search",
+        "find_symbol", "ast_search", "grep_search", "glob_search",
         "git_status", "git_diff", "git_log",
         "get_current_time", "view_image", "view_video",
         "web_fetch", "web_search"

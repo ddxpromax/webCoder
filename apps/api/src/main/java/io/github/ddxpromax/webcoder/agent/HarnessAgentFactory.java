@@ -188,6 +188,7 @@ public class HarnessAgentFactory {
         ));
         toolkit.registerTool(new WebTools());
         toolkit.registerTool(new BrowserUseTool());
+        toolkit.registerTool(new AstSearchTool(workspace, agentId, codingMode));
         toolkit.registerTool(new SendFileToUserTool(
             workspace, workingDirectory
         ));
