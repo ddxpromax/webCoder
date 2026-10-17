@@ -197,6 +197,7 @@ public class HarnessAgentFactory {
         toolkit.registerTool(new WebTools());
         toolkit.registerTool(new BrowserUseTool());
         toolkit.registerTool(new AstSearchTool(workspace, agentId, codingMode));
+        toolkit.registerTool(new LspTool(workspace, agentId, codingMode));
         toolkit.registerTool(new ViewImageTool(workspace));
         toolkit.registerTool(new DesktopScreenshotTool(workingDirectory));
         toolkit.registerTool(new ViewVideoTool(workspace));

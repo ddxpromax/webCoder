@@ -42,6 +42,7 @@ public class ToolConfigService {
         def("materialize_skill", "Materialize a skill", "🧩"),
         def("find_symbol", "Find code symbol definitions", "🔖"),
         def("ast_search", "Search code by AST pattern", "🌳"),
+        def("lsp", "Use language-server code intelligence", "🧭"),
         def("memory_search", "Search persistent agent memory", "🧠")
     );
     private static final Map<String, String> NAMES = Map.ofEntries(
