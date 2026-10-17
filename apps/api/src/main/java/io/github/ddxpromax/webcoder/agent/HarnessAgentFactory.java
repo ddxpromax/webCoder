@@ -159,7 +159,8 @@ public class HarnessAgentFactory {
                 agentId, agents, approvals, toolGuard,
                 fileGuard, toolConfig, workspace,
                 mcpRuntime, toolkit
-            ));
+            ))
+            .hook(new MediaPromotionHook());
     }
 
     public void close(HarnessAgent agent) {
@@ -189,6 +190,7 @@ public class HarnessAgentFactory {
         toolkit.registerTool(new WebTools());
         toolkit.registerTool(new BrowserUseTool());
         toolkit.registerTool(new AstSearchTool(workspace, agentId, codingMode));
+        toolkit.registerTool(new ViewImageTool(workspace));
         toolkit.registerTool(new SendFileToUserTool(
             workspace, workingDirectory
         ));
