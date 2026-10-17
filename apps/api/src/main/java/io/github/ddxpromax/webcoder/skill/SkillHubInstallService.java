@@ -187,6 +187,10 @@ public class SkillHubInstallService {
         try(java.util.zip.ZipInputStream zip=new java.util.zip.ZipInputStream(new java.io.ByteArrayInputStream(fetchBytes(URI.create(url),cancelled)))){
             java.util.zip.ZipEntry entry; while((entry=zip.getNextEntry())!=null){ensureNotCancelled(cancelled);if(entry.isDirectory())continue;if(files.size()>=MAX_PACKAGE_ENTRIES)throw new IllegalArgumentException("LobeHub skill package has too many files");String name=entry.getName().replace('\\','/');if(name.startsWith("/")||name.contains("../"))throw new IllegalArgumentException("Unsafe path in LobeHub package");byte[] bytes=readLimited(zip,cancelled);if(!isText(bytes))continue;files.put(name,new String(bytes,StandardCharsets.UTF_8));}
         }
+        if(!files.containsKey("SKILL.md")) {
+            String prefix=null; for(String file:files.keySet()){int slash=file.indexOf('/');if(slash<0){prefix=null;break;}String candidate=file.substring(0,slash+1);if(prefix==null)prefix=candidate;else if(!prefix.equals(candidate)){prefix=null;break;}}
+            if(prefix!=null&&files.containsKey(prefix+"SKILL.md")){Map<String,Object> normalized=new LinkedHashMap<>();for(Map.Entry<String,Object> entry:files.entrySet())normalized.put(entry.getKey().substring(prefix.length()),entry.getValue());files=normalized;}
+        }
         if(!files.containsKey("SKILL.md"))throw new IllegalStateException("LobeHub skill package is missing SKILL.md");
         return fromFiles(id,files,url,"lobehub");
     }
