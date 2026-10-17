@@ -230,6 +230,11 @@ public class SkillsController {
         require(pool.config(name, asMap(body.get("config")))); return Map.of("updated", true);
     }
 
+    @DeleteMapping({"/skills/pool/{name}/config", "/agents/{agentId}/skills/pool/{name}/config"})
+    public Map<String,Object> clearPoolConfig(@PathVariable(required = false) String agentId, @PathVariable String name) {
+        require(pool.config(name, Map.of())); return Map.of("cleared",true);
+    }
+
     @PutMapping({"/skills/pool/{name}/tags", "/agents/{agentId}/skills/pool/{name}/tags"})
     public Map<String, Object> setPoolTags(@PathVariable(required = false) String agentId, @PathVariable String name, @RequestBody List<String> tags) {
         require(pool.tags(name, tags)); return Map.of("updated", true, "tags", tags);
