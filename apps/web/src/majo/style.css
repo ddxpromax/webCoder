@@ -864,6 +864,17 @@ a {
   height: 18px;
   accent-color: var(--majo-accent);
 }
+.oauth-details {
+  margin: 12px 0;
+  color: #aaa;
+}
+.oauth-details summary {
+  cursor: pointer;
+  font-size: 12px;
+}
+.oauth-form {
+  margin-top: 12px;
+}
 .model-list-header {
   display: flex;
   align-items: center;

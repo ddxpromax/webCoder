@@ -127,9 +127,12 @@ final class McpBindings {
                     spec.get("value")
                 ));
             } else if ("credential".equals(source)) {
-                result.put(entry.getKey(), secrets.getOrDefault(
+                String value = secrets.getOrDefault(
                     McpValues.string(spec.get("field")), ""
-                ));
+                );
+                String format = McpValues.string(spec.get("format"));
+                result.put(entry.getKey(), format.isBlank() ? value
+                    : format.replace("{value}", value));
             }
         }
         return result;

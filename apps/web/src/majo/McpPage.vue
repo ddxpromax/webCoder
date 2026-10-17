@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { apiRequest } from './api'
 
 interface McpClient {
@@ -17,6 +17,12 @@ interface McpClient {
   http_timeout: number | null
   tools: string[] | null
   access_summary?: { default_effect: string; overrides_count: number }
+  oauth_status?: {
+    authorized: boolean
+    expires_at: number
+    scope: string
+    client_id: string
+  }
 }
 
 interface McpTool {
@@ -74,6 +80,9 @@ const form = ref({
   http_timeout: '',
 })
 const policy = ref<AccessPolicy | null>(null)
+const oauthBusy = ref(false)
+const oauthPolling = ref<number | null>(null)
+const oauthForm = ref({ client_id: '', scope: '', auth_endpoint: '', token_endpoint: '' })
 
 function linesToRecord(text: string) {
   const record: Record<string, string> = {}
@@ -110,6 +119,11 @@ async function select(client: McpClient) {
   creating.value = false
   tools.value = []
   policy.value = null
+  oauthForm.value = {
+    client_id: client.oauth_status?.client_id ?? '',
+    scope: client.oauth_status?.scope ?? '',
+    auth_endpoint: '', token_endpoint: '',
+  }
   toolsLoading.value = true
   try {
     policy.value = await apiRequest<AccessPolicy>(
@@ -120,6 +134,74 @@ async function select(client: McpClient) {
     error.value = cause instanceof Error ? cause.message : 'Could not load MCP tools.'
   } finally {
     toolsLoading.value = false
+  }
+}
+
+function clearOAuthPolling() {
+  if (oauthPolling.value !== null) window.clearInterval(oauthPolling.value)
+  oauthPolling.value = null
+}
+
+async function refreshOAuthStatus() {
+  const client = selected.value
+  if (!client) return
+  try {
+    const status = await apiRequest<McpClient['oauth_status']>(
+      `/mcp/oauth/status/${encodeURIComponent(client.key)}`,
+    )
+    client.oauth_status = status
+    const index = clients.value.findIndex((item) => item.key === client.key)
+    const listed = index >= 0 ? clients.value[index] : undefined
+    if (listed) clients.value[index] = { ...listed, oauth_status: status }
+    if (status?.authorized) clearOAuthPolling()
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : 'Could not load OAuth status.'
+    clearOAuthPolling()
+  }
+}
+
+async function authorizeOAuth() {
+  const client = selected.value
+  if (!client) return
+  oauthBusy.value = true
+  error.value = ''
+  try {
+    const response = await apiRequest<{ auth_url: string }>(
+      `/mcp/oauth/start/${encodeURIComponent(client.key)}`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          client_id: oauthForm.value.client_id,
+          scope: oauthForm.value.scope,
+          auth_endpoint: oauthForm.value.auth_endpoint,
+          token_endpoint: oauthForm.value.token_endpoint,
+        }),
+      },
+    )
+    window.open(response.auth_url, 'mcp-oauth', 'popup,width=600,height=700')
+    clearOAuthPolling()
+    oauthPolling.value = window.setInterval(() => void refreshOAuthStatus(), 2_000)
+    notice.value = 'Complete authorization in the opened window.'
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : 'Could not start OAuth authorization.'
+  } finally {
+    oauthBusy.value = false
+  }
+}
+
+async function revokeOAuth() {
+  const client = selected.value
+  if (!client) return
+  oauthBusy.value = true
+  error.value = ''
+  try {
+    await apiRequest(`/mcp/oauth/${encodeURIComponent(client.key)}`, { method: 'DELETE' })
+    await refreshOAuthStatus()
+    notice.value = 'OAuth tokens cleared.'
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : 'Could not clear OAuth tokens.'
+  } finally {
+    oauthBusy.value = false
   }
 }
 
@@ -264,6 +346,7 @@ function addToolOverride() {
 }
 
 onMounted(() => void refresh())
+onBeforeUnmount(clearOAuthPolling)
 </script>
 
 <template>
@@ -333,6 +416,30 @@ onMounted(() => void refresh())
           <button @click="toggle(selected)">{{ selected.enabled ? 'Disable' : 'Enable' }}</button>
           <button @click="remove(selected)">Delete</button>
         </div>
+        <template v-if="selected.transport !== 'stdio'">
+          <h3>OAuth authorization</h3>
+          <p class="muted">
+            {{ selected.oauth_status?.authorized ? 'Authorized for this MCP server.' : 'Authorize a remote MCP server with OAuth 2.1 and PKCE.' }}
+          </p>
+          <p v-if="selected.oauth_status?.authorized" class="success-notice">
+            Authorized{{ selected.oauth_status.expires_at ? ` until ${new Date(selected.oauth_status.expires_at * 1000).toLocaleString()}` : '' }}.
+          </p>
+          <details class="oauth-details">
+            <summary>Advanced OAuth options</summary>
+            <div class="stacked-form oauth-form">
+              <label>Client ID <input v-model="oauthForm.client_id" autocomplete="off" /></label>
+              <label>Scope <input v-model="oauthForm.scope" placeholder="Optional" /></label>
+              <label>Authorization endpoint <input v-model="oauthForm.auth_endpoint" type="url" placeholder="Auto-discover when empty" /></label>
+              <label>Token endpoint <input v-model="oauthForm.token_endpoint" type="url" placeholder="Auto-discover when empty" /></label>
+            </div>
+          </details>
+          <div class="environment-actions">
+            <button class="primary" :disabled="oauthBusy" @click="authorizeOAuth">
+              {{ selected.oauth_status?.authorized ? 'Reauthorize' : 'Authorize' }}
+            </button>
+            <button v-if="selected.oauth_status?.authorized" :disabled="oauthBusy" @click="revokeOAuth">Revoke</button>
+          </div>
+        </template>
         <h3>Available tools</h3>
         <p v-if="toolsLoading">Discovering server tools…</p>
         <p v-else-if="!tools.length">No tools found.</p>

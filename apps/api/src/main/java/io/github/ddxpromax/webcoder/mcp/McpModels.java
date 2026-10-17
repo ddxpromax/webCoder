@@ -55,6 +55,18 @@ public final class McpModels {
     ) {}
 
     @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
+    public record OAuthStartRequest(
+        String url,
+        String scope,
+        String clientId,
+        String authEndpoint,
+        String tokenEndpoint
+    ) {}
+
+    @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
+    public record OAuthStartResponse(String authUrl, String sessionId) {}
+
+    @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
     public record AccessSummary(
         String defaultEffect,
         int overridesCount

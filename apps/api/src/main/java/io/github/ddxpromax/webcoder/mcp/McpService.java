@@ -37,7 +37,7 @@ public class McpService {
         Map<String, Object> config = McpValues.map(
             card.get("config")
         );
-        Map<String, String> secrets = store.secrets(key);
+        Map<String, String> secrets = resolvedSecrets(key);
         String displayName = McpValues.string(
             config.get("display_name")
         );
@@ -58,7 +58,7 @@ public class McpService {
             McpValues.string(endpoint.get("cwd")),
             McpValues.positiveDouble(endpoint.get("http_timeout")),
             McpValues.nullableList(config.get("tools")),
-            null,
+            oauthStatus(key),
             new McpModels.AccessSummary(
                 McpPolicy.read(policy).defaultEffect(),
                 McpPolicy.read(policy).toolOverrides().size()
@@ -152,6 +152,27 @@ public class McpService {
         return policy(key);
     }
 
+    McpStore store() { return store; }
+
+    public McpModels.OAuthStatus oauthStatus(String key) {
+        requireCard(key);
+        Map<String, Object> credential = store.credential(
+            McpStore.mcpOauthCredentialRef(key)
+        );
+        if (credential == null || McpValues.string(McpValues.map(
+            credential.get("secrets")).get("access_token")).isBlank()) {
+            return new McpModels.OAuthStatus(false, 0, "", "");
+        }
+        Map<String, Object> publicData = McpValues.map(credential.get("public"));
+        double expiresAt = number(publicData.get("expires_at"));
+        return new McpModels.OAuthStatus(
+            expiresAt <= 0 || expiresAt > System.currentTimeMillis() / 1000.0,
+            expiresAt,
+            McpValues.string(publicData.get("scope")),
+            McpValues.string(publicData.get("client_id"))
+        );
+    }
+
     public List<McpModels.AccessPrincipalOption>
         accessPrincipals() {
         if (chats == null) {
@@ -243,7 +264,7 @@ public class McpService {
         String transport = McpValues.string(
             endpoint.get("transport")
         );
-        Map<String, String> secrets = store.secrets(key);
+        Map<String, String> secrets = resolvedSecrets(key);
         McpServerConfig result = new McpServerConfig();
         result.setTransport("streamable_http".equals(transport)
             ? "streamable-http" : transport);
@@ -382,6 +403,22 @@ public class McpService {
             throw new McpNotFoundException(key);
         }
         return card;
+    }
+
+    private Map<String, String> resolvedSecrets(String key) {
+        Map<String, String> result = new LinkedHashMap<>(store.secrets(key));
+        Map<String, Object> oauth = store.credential(
+            McpStore.mcpOauthCredentialRef(key)
+        );
+        if (oauth != null) {
+            result.putAll(McpValues.strings(McpValues.map(oauth.get("secrets"))));
+        }
+        return result;
+    }
+
+    private static double number(Object value) {
+        try { return Double.parseDouble(String.valueOf(value)); }
+        catch (RuntimeException exception) { return 0; }
     }
 
     private void requireUniqueName(String display, String key) {

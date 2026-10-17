@@ -29,6 +29,53 @@ class McpControllerTests {
     Path workingDirectory;
 
     @Test
+    void oauthStartStatusAndRevokeFollowTheMajoCardContract()
+        throws Exception {
+        ObjectMapper mapper = new ObjectMapper();
+        McpStore store = new McpStore(
+            new MajoWorkingDirectory(workingDirectory.toString()),
+            new JsonFileStore(mapper), new LocalWorkspaceMutationGate()
+        );
+        McpService service = new McpService(store, null);
+        var mvc = MockMvcBuilders.standaloneSetup(
+            new McpController(service, new McpRuntime(service))
+        ).build();
+        mvc.perform(post("/api/mcp").contentType(MediaType.APPLICATION_JSON)
+            .content(mapper.writeValueAsString(Map.of(
+                "client_key", "remote",
+                "client", Map.of("name", "Remote", "transport", "streamable_http",
+                    "url", "https://mcp.example.test/mcp")
+            )))).andExpect(status().isOk());
+
+        mvc.perform(post("/api/mcp/oauth/start/remote")
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("{\"client_id\":\"client-1\",\"scope\":\"tools\","
+                + "\"auth_endpoint\":\"https://auth.example.test/authorize\","
+                + "\"token_endpoint\":\"https://auth.example.test/token\"}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.auth_url").value(org.hamcrest.Matchers.containsString(
+                "response_type=code")))
+            .andExpect(jsonPath("$.auth_url").value(org.hamcrest.Matchers.containsString(
+                "code_challenge_method=S256")));
+
+        store.saveCredential(McpStore.mcpOauthCredentialRef("remote"), Map.of(
+            "kind", "oauth2_auth_code",
+            "public", Map.of("expires_at", 4_102_444_800L, "scope", "tools", "client_id", "client-1"),
+            "secrets", Map.of("access_token", "never-return-this-token")
+        ));
+        mvc.perform(get("/api/mcp/oauth/status/remote"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.authorized").value(true))
+            .andExpect(jsonPath("$.scope").value("tools"));
+        mvc.perform(delete("/api/mcp/oauth/remote"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.message").value("OAuth tokens cleared"));
+        mvc.perform(get("/api/mcp/oauth/status/remote"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.authorized").value(false));
+    }
+
+    @Test
     void clientCardsKeepSecretsOutOfResponsesAndPreserveMaskedUpdates()
         throws Exception {
         ObjectMapper mapper = new ObjectMapper();

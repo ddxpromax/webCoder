@@ -61,14 +61,36 @@ public class McpStore {
     }
 
     public Map<String, String> secrets(String key) {
-        Path path = credentialPath(key);
+        Map<String, Object> credential = credential(mcpCredentialRef(key));
+        return credential == null ? Map.of() : McpValues.strings(
+            credential.get("secrets")
+        );
+    }
+
+    public Map<String, Object> credential(String ref) {
+        Path path = credentialPath(ref);
         if (!Files.isRegularFile(path)) {
-            return Map.of();
+            return null;
         }
         harden(path);
-        return McpValues.strings(
-            json.read(path, Map.of()).get("secrets")
-        );
+        return json.read(path, Map.of());
+    }
+
+    public void saveCredential(String ref, Map<String, Object> credential) {
+        try (var lease = mutationGate.acquire(root)) {
+            Map<String, Object> payload = new java.util.LinkedHashMap<>(credential);
+            payload.put("ref", ref);
+            json.writeAtomic(credentialPath(ref), payload);
+            harden(credentialPath(ref));
+        }
+    }
+
+    public void deleteCredential(String ref) {
+        try (var lease = mutationGate.acquire(root)) {
+            Files.deleteIfExists(credentialPath(ref));
+        } catch (IOException exception) {
+            throw new IllegalStateException("Cannot delete MCP credential", exception);
+        }
     }
 
     public void save(
@@ -78,15 +100,15 @@ public class McpStore {
     ) {
         try (var lease = mutationGate.acquire(root)) {
             if (secrets.isEmpty()) {
-                Files.deleteIfExists(credentialPath(key));
+                Files.deleteIfExists(credentialPath(mcpCredentialRef(key)));
             } else {
-                json.writeAtomic(credentialPath(key), Map.of(
-                    "ref", "mcp/" + key,
+                json.writeAtomic(credentialPath(mcpCredentialRef(key)), Map.of(
+                    "ref", mcpCredentialRef(key),
                     "kind", "static",
                     "public", Map.of(),
                     "secrets", secrets
                 ));
-                harden(credentialPath(key));
+                harden(credentialPath(mcpCredentialRef(key)));
             }
             card.put("schema_version", "mcp-card.v1");
             json.writeAtomic(cardPath(key), card);
@@ -107,7 +129,8 @@ public class McpStore {
     public void delete(String key) {
         try (var lease = mutationGate.acquire(root)) {
             Files.deleteIfExists(cardPath(key));
-            Files.deleteIfExists(credentialPath(key));
+            Files.deleteIfExists(credentialPath(mcpCredentialRef(key)));
+            Files.deleteIfExists(credentialPath(mcpOauthCredentialRef(key)));
         } catch (IOException exception) {
             throw new IllegalStateException(
                 "Cannot delete MCP client", exception
@@ -120,11 +143,18 @@ public class McpStore {
         return root.resolve("mcp/cards").resolve(key + ".json");
     }
 
-    private Path credentialPath(String key) {
-        requireKey(key);
+    private Path credentialPath(String ref) {
+        if (ref == null || ref.isBlank()) {
+            throw new IllegalArgumentException("MCP credential reference is required.");
+        }
+        String filename = ref.replace('/', '_');
         return root.resolve("mcp/credentials")
-            .resolve("mcp_" + key + ".json");
+            .resolve(filename + ".json");
     }
+
+    static String mcpCredentialRef(String key) { return "mcp/" + key; }
+
+    static String mcpOauthCredentialRef(String key) { return "mcp/" + key + "/oauth"; }
 
     static void requireKey(String key) {
         if (!validKey(key)) {
