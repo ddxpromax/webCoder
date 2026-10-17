@@ -45,6 +45,7 @@ public class ApprovalHook implements Hook, RuntimeContextAware {
     private final Path workspace;
     private final McpRuntime mcpRuntime;
     private final Toolkit toolkit;
+    private final DoomLoopGuard doomLoop;
     private final AtomicReference<RuntimeContext> context =
         new AtomicReference<>();
 
@@ -58,7 +59,7 @@ public class ApprovalHook implements Hook, RuntimeContextAware {
         Path workspace
     ) {
         this(agentId, agents, store, guard, fileGuard,
-            toolConfig, workspace, null, null);
+            toolConfig, workspace, null, null, null);
     }
 
     public ApprovalHook(
@@ -70,7 +71,8 @@ public class ApprovalHook implements Hook, RuntimeContextAware {
         ToolConfigService toolConfig,
         Path workspace,
         McpRuntime mcpRuntime,
-        Toolkit toolkit
+        Toolkit toolkit,
+        DoomLoopGuard doomLoop
     ) {
         this.agentId = agentId;
         this.agents = agents;
@@ -81,11 +83,13 @@ public class ApprovalHook implements Hook, RuntimeContextAware {
         this.workspace = workspace;
         this.mcpRuntime = mcpRuntime;
         this.toolkit = toolkit;
+        this.doomLoop = doomLoop;
     }
 
     @Override
     public void setRuntimeContext(RuntimeContext runtimeContext) {
         context.set(runtimeContext);
+        if (doomLoop != null && runtimeContext != null) doomLoop.reset(runtimeContext.getSessionId());
     }
 
     @Override
@@ -114,6 +118,7 @@ public class ApprovalHook implements Hook, RuntimeContextAware {
                 workspace
             );
         }
+        if (reason == null && doomLoop != null) reason = doomLoop.check(sessionId(event), toolUse.getName(), toolUse.getInput());
         if (reason != null) {
             acting.setToolUse(rejected(toolUse, reason));
             return Mono.just(event);

@@ -41,6 +41,7 @@ public class HarnessAgentFactory {
     private final WorkspaceMutationGate mutationGate;
     private final McpRuntime mcpRuntime;
     private final SubagentTaskRegistry subagentTasks;
+    private final DoomLoopGuard doomLoop;
 
     public HarnessAgentFactory(
         ModelRoutingService routing,
@@ -60,7 +61,8 @@ public class HarnessAgentFactory {
         SkillWorkspaceService skills,
         WorkspaceMutationGate mutationGate,
         McpRuntime mcpRuntime,
-        SubagentTaskRegistry subagentTasks
+        SubagentTaskRegistry subagentTasks,
+        DoomLoopGuard doomLoop
     ) {
         this.routing = routing;
         this.providerModels = providerModels;
@@ -80,6 +82,7 @@ public class HarnessAgentFactory {
         this.mutationGate = mutationGate;
         this.mcpRuntime = mcpRuntime;
         this.subagentTasks = subagentTasks;
+        this.doomLoop = doomLoop;
     }
 
     public String agentName(String agentId) {
@@ -161,7 +164,7 @@ public class HarnessAgentFactory {
             .hook(new ApprovalHook(
                 agentId, agents, approvals, toolGuard,
                 fileGuard, toolConfig, workspace,
-                mcpRuntime, toolkit
+                mcpRuntime, toolkit, doomLoop
             ))
             .hook(new MediaPromotionHook());
     }
