@@ -37,12 +37,108 @@ const activeLoop = ref('')
 const transcript = ref<HTMLElement | null>(null)
 const recording = ref(false)
 const transcribing = ref(false)
+interface ChatModel {
+  id: string
+  name?: string
+  hidden?: boolean
+  is_free?: boolean
+}
+
+interface ChatModelProvider {
+  id: string
+  name: string
+  api_key?: string
+  require_api_key?: boolean
+  is_custom?: boolean
+  is_local?: boolean
+  is_free_tier?: boolean
+  models?: ChatModel[]
+  extra_models?: ChatModel[]
+}
+
+interface ActiveModelInfo {
+  active_llm: { provider_id: string; model: string } | null
+  effective_max_input_length?: number | null
+}
+
+const modelProviders = ref<ChatModelProvider[]>([])
+const activeModel = ref<ActiveModelInfo>({ active_llm: null })
+const modelMenuOpen = ref(false)
+const modelSearch = ref('')
+const modelLoading = ref(false)
+const modelSwitching = ref(false)
+const activeModelName = computed(() => {
+  const slot = activeModel.value.active_llm
+  if (!slot) return 'Select model'
+  const provider = modelProviders.value.find((item) => item.id === slot.provider_id)
+  const model = [...(provider?.models || []), ...(provider?.extra_models || [])]
+    .find((item) => item.id === slot.model)
+  return model?.name || model?.id || slot.model
+})
+const visibleModelProviders = computed(() => {
+  const query = modelSearch.value.trim().toLowerCase()
+  return modelProviders.value
+    .map((provider) => ({
+      ...provider,
+      models: [...(provider.models || []), ...(provider.extra_models || [])]
+        .filter((model) => !model.hidden)
+        .filter((model) => !query || provider.name.toLowerCase().includes(query)
+          || (model.name || model.id).toLowerCase().includes(query)),
+    }))
+    .filter((provider) => {
+      const isConfigured = provider.require_api_key === false || Boolean(provider.api_key)
+        || Boolean(provider.is_custom) || Boolean(provider.is_local) || Boolean(provider.is_free_tier)
+      return isConfigured && provider.models.length > 0
+    })
+})
 let turnController: AbortController | null = null
 let approvalsTimer: ReturnType<typeof setInterval> | null = null
 let requestVersion = 0
 let recorder: MediaRecorder | null = null
 let recordingStream: MediaStream | null = null
 let recordingTimer: number | null = null
+
+async function loadModels() {
+  modelLoading.value = true
+  try {
+    const [providers, selected] = await Promise.all([
+      apiRequest<ChatModelProvider[]>('/models'),
+      apiRequest<ActiveModelInfo>(
+        `/models/active?scope=effective&agent_id=${encodeURIComponent(workbench.agentId)}`,
+        {},
+        workbench.agentId,
+      ),
+    ])
+    modelProviders.value = providers
+    activeModel.value = selected
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : 'Could not load models.'
+  } finally {
+    modelLoading.value = false
+  }
+}
+
+async function selectModel(providerId: string, modelId: string) {
+  if (modelSwitching.value) return
+  modelSwitching.value = true
+  error.value = ''
+  try {
+    activeModel.value = await apiRequest<ActiveModelInfo>('/models/active', {
+      method: 'PUT',
+      body: JSON.stringify({
+        provider_id: providerId,
+        model: modelId,
+        scope: 'agent',
+        agent_id: workbench.agentId,
+      }),
+    }, workbench.agentId)
+    modelMenuOpen.value = false
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : 'Could not switch the model.'
+  } finally {
+    modelSwitching.value = false
+  }
+}
 
 async function scrollToBottom() {
   await nextTick()
@@ -222,6 +318,7 @@ watch(sending, (active) => {
 })
 
 watch([() => workbench.agentId, chatId], () => void loadLoopModes(), { immediate: true })
+watch(() => workbench.agentId, () => void loadModels(), { immediate: true })
 watch(sending, (active) => {
   if (!active) return
   const chat = workbench.chats.find((item) => item.id === chatId.value)
@@ -248,7 +345,42 @@ onBeforeUnmount(() => {
           }}
         </h1>
       </div>
-      <button class="icon-button" title="New chat" @click="router.push('/chat')">＋</button>
+      <div class="chat-heading-actions">
+        <div class="model-selector">
+          <button
+            class="model-selector-trigger"
+            type="button"
+            :aria-expanded="modelMenuOpen"
+            aria-haspopup="listbox"
+            :disabled="modelLoading || modelSwitching"
+            @click="modelMenuOpen = !modelMenuOpen"
+          >
+            {{ modelSwitching ? 'Switching model…' : activeModelName }} <span>⌄</span>
+          </button>
+          <section v-if="modelMenuOpen" class="model-selector-panel" role="listbox" aria-label="Select model">
+            <input v-model="modelSearch" aria-label="Search models" placeholder="Search models" />
+            <p v-if="modelLoading" class="muted">Loading models…</p>
+            <p v-else-if="!visibleModelProviders.length" class="muted">No configured models are available.</p>
+            <div v-for="provider in visibleModelProviders" :key="provider.id" class="model-provider-group">
+              <strong>{{ provider.name }}</strong>
+              <button
+                v-for="model in provider.models"
+                :key="model.id"
+                type="button"
+                class="model-option"
+                :class="{ active: activeModel.active_llm?.provider_id === provider.id && activeModel.active_llm.model === model.id }"
+                :disabled="modelSwitching"
+                @click="selectModel(provider.id, model.id)"
+              >
+                <span>{{ model.name || model.id }}</span>
+                <small v-if="model.is_free">Free</small>
+                <small v-if="activeModel.active_llm?.provider_id === provider.id && activeModel.active_llm.model === model.id">Active</small>
+              </button>
+            </div>
+          </section>
+        </div>
+        <button class="icon-button" title="New chat" @click="router.push('/chat')">＋</button>
+      </div>
     </header>
 
     <div ref="transcript" class="chat-transcript" aria-live="polite">
