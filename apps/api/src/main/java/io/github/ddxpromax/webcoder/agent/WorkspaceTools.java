@@ -277,6 +277,76 @@ public class WorkspaceTools {
                 + String.join("\n", results);
     }
 
+    /** Locate common class, type and function declarations in the workspace. */
+    @Tool(
+        name = "find_symbol",
+        description = "Find class, type, function, or method definitions by name",
+        readOnly = true,
+        concurrencySafe = true
+    )
+    public String findSymbol(
+        @ToolParam(name = "symbolName", description = "Symbol name")
+        String symbolName,
+        @ToolParam(
+            name = "language",
+            description = "Optional filename suffix, for example .java or .ts",
+            required = false
+        ) String language
+    ) throws IOException {
+        if (symbolName == null || symbolName.isBlank()) {
+            return "symbolName must not be empty";
+        }
+        String name = symbolName.strip();
+        Pattern declaration = Pattern.compile(
+            "\\b(?:class|interface|enum|record|type|function|def|func|fn)\\s+"
+                + Pattern.quote(name) + "\\b"
+                + "|(?:^|[;{}\\s])" + Pattern.quote(name)
+                + "\\s*\\([^;{}]*\\)\\s*(?:\\{|=>)",
+            Pattern.CASE_INSENSITIVE
+        );
+        List<String> results = new ArrayList<>();
+        if (Files.isDirectory(root)) {
+            Files.walkFileTree(root, new SimpleFileVisitor<>() {
+                @Override
+                public FileVisitResult preVisitDirectory(
+                    Path directory, BasicFileAttributes attrs
+                ) {
+                    if (directory.equals(root)) return FileVisitResult.CONTINUE;
+                    String directoryName = directory.getFileName().toString();
+                    return directoryName.startsWith(".") || "target".equals(directoryName)
+                        || "node_modules".equals(directoryName)
+                        ? FileVisitResult.SKIP_SUBTREE : FileVisitResult.CONTINUE;
+                }
+
+                @Override
+                public FileVisitResult visitFile(
+                    Path file, BasicFileAttributes attrs
+                ) {
+                    if (results.size() >= 30) return FileVisitResult.TERMINATE;
+                    if (!attrs.isRegularFile() || attrs.size() > 1_000_000
+                        || !matchesFilePattern(file.getFileName().toString(), language)) {
+                        return FileVisitResult.CONTINUE;
+                    }
+                    try {
+                        List<String> lines = Files.readAllLines(file);
+                        for (int line = 0; line < lines.size() && results.size() < 30; line++) {
+                            if (declaration.matcher(lines.get(line)).find()) {
+                                results.add(root.relativize(file) + ":" + (line + 1)
+                                    + "  " + lines.get(line).trim());
+                            }
+                        }
+                    } catch (IOException ignored) {
+                        // Skip non-text and unreadable files.
+                    }
+                    return FileVisitResult.CONTINUE;
+                }
+            });
+        }
+        return results.isEmpty() ? "Symbol not found: '" + name + "'"
+            : "Found " + results.size() + " definitions:\n"
+                + String.join("\n", results);
+    }
+
     private Path resolve(String path) {
         if (path == null || path.isBlank()) {
             throw new IllegalArgumentException("path is required");

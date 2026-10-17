@@ -28,6 +28,8 @@ class WorkspaceToolsTests {
             .contains("Main.java");
         assertThat(tools.searchCode("Main", "*.java", 10))
             .contains("src/Main.java:1");
+        assertThat(tools.findSymbol("Main", ".java"))
+            .contains("src/Main.java:1");
         assertThat(tools.editFile("src/Main.java", "Main", "App"))
             .contains("[edited]");
         assertThat(tools.appendFile("src/Main.java", "// end"))
@@ -65,7 +67,7 @@ class WorkspaceToolsTests {
             .collect(Collectors.toSet());
         assertThat(names).containsExactlyInAnyOrder(
             "read_file", "write_file", "edit_file",
-            "append_file", "list_directory", "search_code"
+            "append_file", "list_directory", "search_code", "find_symbol"
         );
     }
 }
