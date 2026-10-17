@@ -20,7 +20,8 @@ public class SettingsRepository {
             SELECT api_key, base_url, model_name, workspace,
                    theme_accent, theme_accent_dark, heartbeat_enabled, heartbeat_every,
                    heartbeat_target, heartbeat_timeout_seconds, heartbeat_active_hours_start,
-                   heartbeat_active_hours_end
+                   heartbeat_active_hours_end, audio_mode, transcription_provider_type,
+                   transcription_provider_id
             FROM settings
             WHERE id = 1
             """,
@@ -34,7 +35,8 @@ public class SettingsRepository {
                 rs.getString("theme_accent_dark"), rs.getBoolean("heartbeat_enabled"),
                 rs.getString("heartbeat_every"), rs.getString("heartbeat_target"),
                 rs.getInt("heartbeat_timeout_seconds"), rs.getString("heartbeat_active_hours_start"),
-                rs.getString("heartbeat_active_hours_end")
+                rs.getString("heartbeat_active_hours_end"), rs.getString("audio_mode"),
+                rs.getString("transcription_provider_type"), rs.getString("transcription_provider_id")
             )
         );
     }
@@ -79,6 +81,15 @@ public class SettingsRepository {
                 .addValue("target", target).addValue("timeout", timeout).addValue("start", start).addValue("end", end));
     }
 
+    public void updateVoice(String audioMode, String providerType, String providerId) {
+        jdbc.update("""
+            UPDATE settings SET audio_mode=:audioMode,
+              transcription_provider_type=:providerType,
+              transcription_provider_id=:providerId WHERE id=1
+            """, new MapSqlParameterSource().addValue("audioMode", audioMode)
+                .addValue("providerType", providerType).addValue("providerId", providerId));
+    }
+
     private static void addIfPresent(
         Map<String, String> body,
         String requestKey,
@@ -100,6 +111,7 @@ public class SettingsRepository {
         String themeAccent,
         String themeAccentDark, boolean heartbeatEnabled, String heartbeatEvery,
         String heartbeatTarget, int heartbeatTimeoutSeconds, String heartbeatActiveHoursStart,
-        String heartbeatActiveHoursEnd
+        String heartbeatActiveHoursEnd, String audioMode, String transcriptionProviderType,
+        String transcriptionProviderId
     ) {}
 }

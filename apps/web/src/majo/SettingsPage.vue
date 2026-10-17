@@ -121,6 +121,11 @@ onMounted(() => void refresh())
       <RouterLink to="/settings/security">Manage security</RouterLink>
     </div>
     <div class="settings-card narrow-card">
+      <h2>Voice transcription</h2>
+      <p>Configure browser capture, local Whisper, or a model provider.</p>
+      <RouterLink to="/settings/voice-transcription">Configure voice transcription</RouterLink>
+    </div>
+    <div class="settings-card narrow-card">
       <h2>Heartbeat</h2>
       <p>Run instructions from <code>HEARTBEAT.md</code> on a recurring schedule.</p>
       <form class="stacked-form" @submit.prevent="saveHeartbeat">

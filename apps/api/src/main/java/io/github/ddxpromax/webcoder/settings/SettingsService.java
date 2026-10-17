@@ -53,6 +53,27 @@ public class SettingsService {
         return value;
     }
 
+    public Map<String, String> getVoice() {
+        var row = repository.find();
+        return Map.of("audio_mode", row.audioMode(),
+            "transcription_provider_type", row.transcriptionProviderType(),
+            "transcription_provider_id", row.transcriptionProviderId());
+    }
+
+    @Transactional
+    public Map<String, String> setVoice(String audioMode, String providerType, String providerId) {
+        audioMode = audioMode == null ? "" : audioMode.strip().toLowerCase(java.util.Locale.ROOT);
+        providerType = providerType == null ? "" : providerType.strip().toLowerCase(java.util.Locale.ROOT);
+        if (!java.util.Set.of("auto", "native").contains(audioMode)) {
+            throw new IllegalArgumentException("audio_mode must be auto or native");
+        }
+        if (!java.util.Set.of("disabled", "whisper_api", "local_whisper").contains(providerType)) {
+            throw new IllegalArgumentException("transcription_provider_type must be disabled, whisper_api, or local_whisper");
+        }
+        repository.updateVoice(audioMode, providerType, providerId == null ? "" : providerId.strip());
+        return getVoice();
+    }
+
     @Transactional
     public void setHeartbeat(boolean enabled, String every, String target, int timeout, String start, String end) {
         if (every == null || every.isBlank()) throw new IllegalArgumentException("heartbeat interval is required");
