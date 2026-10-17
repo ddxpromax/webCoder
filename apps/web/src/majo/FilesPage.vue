@@ -19,6 +19,7 @@ const error = ref('')
 const notice = ref('')
 const showGraph = ref(false)
 const graphRevision = ref(0)
+const promptFiles = ref<string[]>([])
 const uploadInput = ref<HTMLInputElement | null>(null)
 const uploading = ref(false)
 
@@ -34,9 +35,18 @@ async function refresh() {
   original.value = ''
   try {
     entries.value = await apiRequest<WorkspaceFile[]>(endpoint(), {}, workbench.agentId)
+    promptFiles.value = await apiRequest<string[]>('/workspace/system-prompt-files', {}, workbench.agentId)
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : 'Could not load files.'
   }
+}
+
+async function togglePromptFile(name: string) {
+  const next = promptFiles.value.includes(name) ? promptFiles.value.filter((item) => item !== name) : [...promptFiles.value, name]
+  try {
+    promptFiles.value = await apiRequest<string[]>('/workspace/system-prompt-files', { method: 'PUT', body: JSON.stringify({ files: next }) }, workbench.agentId)
+    notice.value = 'System prompt file configuration updated.'
+  } catch (cause) { error.value = cause instanceof Error ? cause.message : 'Could not update system prompt files.' }
 }
 
 async function reindexMemory() {
@@ -142,6 +152,11 @@ onMounted(() => void refresh())
     </div>
     <p v-if="error" class="inline-error" role="alert">{{ error }}</p>
     <p v-if="notice" class="success-notice">{{ notice }}</p>
+    <div v-if="section === 'files'" class="settings-card prompt-files-card">
+      <h2>System prompt files</h2><p class="muted">Files loaded into the agent system prompt when present in this workspace.</p>
+      <label v-for="name in entries.filter((entry) => ['AGENTS.md', 'SOUL.md', 'PROFILE.md'].includes(entry.filename)).map((entry) => entry.filename)" :key="name" class="skills-checkbox"><input type="checkbox" :checked="promptFiles.includes(name)" @change="togglePromptFile(name)" />{{ name }}</label>
+      <p v-if="!entries.some((entry) => ['AGENTS.md', 'SOUL.md', 'PROFILE.md'].includes(entry.filename))" class="muted">No supported system prompt files are present.</p>
+    </div>
     <MemoryGraphView
       v-if="section === 'memory' && showGraph"
       :key="graphRevision"
