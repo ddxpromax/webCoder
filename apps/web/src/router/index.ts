@@ -11,6 +11,7 @@ import EnvironmentsPage from '@/majo/EnvironmentsPage.vue'
 import McpPage from '@/majo/McpPage.vue'
 import ToolsPage from '@/majo/ToolsPage.vue'
 import TokenUsagePage from '@/majo/TokenUsagePage.vue'
+import AgentStatsPage from '@/majo/AgentStatsPage.vue'
 import SkillsPage from '@/majo/SkillsPage.vue'
 import SkillPoolPage from '@/majo/SkillPoolPage.vue'
 import LoginPage from '@/majo/LoginPage.vue'
@@ -52,6 +53,7 @@ const router = createRouter({
         { path: 'mcp', component: McpPage },
         { path: 'tools', component: ToolsPage },
         { path: 'token-usage', component: TokenUsagePage },
+        { path: 'agent-stats', component: AgentStatsPage },
         { path: 'skills', component: SkillsPage },
         { path: 'skill-pool', component: SkillPoolPage },
         { path: 'cron', component: CronPage },
