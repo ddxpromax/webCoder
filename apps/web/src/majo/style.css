@@ -1319,6 +1319,7 @@ a {
 .market-card > span { flex-direction: column; align-items: flex-end; white-space: nowrap; }
 .market-card a { color: var(--majo-accent); font-size: 13px; }
 .plugin-host-page { overflow-y: auto; }.plugin-host { min-height: 240px; }
+.backups-page { overflow-y: auto; }.backup-form { margin-bottom: 16px; }.backup-form fieldset { display: flex; flex-direction: column; gap: 8px; border: 1px solid #3a3a3a; border-radius: 8px; padding: 10px; }.backup-progress { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 9px; margin-bottom: 16px; }.backup-progress progress { grid-column: 1 / -1; width: 100%; accent-color: var(--majo-accent); }.backup-progress small { color: #9b9b9b; }.backup-progress button { justify-self: start; }.backup-conflict { margin-bottom: 16px; border-color: #8e6827; }.backup-row > span:last-child { flex-direction: row; align-items: center; }
 @media (max-width: 760px) { .sync-row { grid-template-columns: 1fr; align-items: start; }.market-card { align-items: flex-start; flex-direction: column; }.market-card > span { align-items: flex-start; }.market-toolbar { justify-content: flex-start; }.market-toolbar > p { width: 100%; } }
 @media (max-width: 850px) {
   .skills-grid {
