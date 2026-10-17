@@ -344,8 +344,25 @@ public class ConsoleController {
     }
 
     @GetMapping("/loops/status")
-    public Map<String, Object> loopStatus() {
-        return tasks.getGlobalStatus();
+    public Map<String, Object> loopStatus(
+        @RequestParam(value = "chat_id", required = false) String chatId,
+        @RequestParam(value = "session_id", required = false) String sessionId
+    ) {
+        String resolved = sessionId;
+        if (chatId != null && !chatId.isBlank()) {
+            ChatEntity chat = chats.getChat(chatId);
+            if (chat != null && chat.getSessionId() != null && !chat.getSessionId().isBlank()) {
+                resolved = chat.getSessionId();
+            }
+        }
+        if (resolved != null && !resolved.isBlank()) {
+            Map<String, Object> status = loops.status(resolved);
+            if (!"idle".equals(status.get("state")) || chatId == null || chatId.isBlank()) return status;
+        }
+        if (chatId != null && "running".equals(tasks.getStatus(chatId))) {
+            Map<String, Object> running = new LinkedHashMap<>(); running.put("state", "running"); running.put("mode", null); return running;
+        }
+        Map<String, Object> idle = new LinkedHashMap<>(); idle.put("state", "idle"); idle.put("mode", null); return idle;
     }
 
     @GetMapping("/console/push-messages")

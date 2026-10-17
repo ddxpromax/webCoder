@@ -163,6 +163,14 @@ class ConsoleControllerTests {
         );
     }
 
+    @Test
+    void loopStatusIsIdleWithoutASelectedLoopSession() {
+        Fixture fixture = fixture(Flux.empty());
+        assertThat(fixture.controller.loopStatus(null, null))
+            .containsEntry("state", "idle")
+            .containsEntry("mode", null);
+    }
+
     private Fixture fixture(Flux<AgentEvent> stream) {
         HarnessAgentFactory factory = mock(HarnessAgentFactory.class);
         HarnessAgent.Builder builder =
