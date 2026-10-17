@@ -173,8 +173,27 @@ public class SkillHubInstallService {
         if (host.equals("lobehub.com") || host.equals("www.lobehub.com") || host.equals("market.lobehub.com")) {
             return resolveLobeHub(uri, version, cancelled);
         }
+        if (host.equals("modelscope.cn") || host.equals("www.modelscope.cn") || host.equals("platform.agentscope.io")) {
+            return resolveArchiveHub(uri, version, cancelled);
+        }
         ensureNotCancelled(cancelled);
         return parseBundle(fetchText(uri, cancelled), bundleUrl, "hub");
+    }
+
+    private Bundle resolveArchiveHub(URI source, String version, AtomicBoolean cancelled)
+        throws IOException, InterruptedException {
+        String[] raw=source.getPath().split("/"); java.util.List<String> parts=new java.util.ArrayList<>();for(String part:raw)if(!part.isBlank())parts.add(part);
+        if(parts.size()<3||!"skills".equals(parts.getFirst()))throw new IllegalArgumentException("Invalid skill archive URL");
+        String owner=parts.get(1),name=parts.get(2),branch=version;
+        if(branch==null||branch.isBlank()){branch="main";if(parts.size()>=6&&"archive".equals(parts.get(3))&&"zip".equals(parts.get(4)))branch=parts.get(5).replaceFirst("\\.zip$","");}
+        String host=source.getHost().toLowerCase();String base=host.contains("modelscope")?"https://www.modelscope.cn":"https://platform.agentscope.io";
+        String url=base+"/skills/"+URLEncoder.encode(owner,StandardCharsets.UTF_8)+"/"+URLEncoder.encode(name,StandardCharsets.UTF_8)+"/archive/zip/"+URLEncoder.encode(branch,StandardCharsets.UTF_8);
+        Map<String,Object> files=new LinkedHashMap<>();
+        try(java.util.zip.ZipInputStream zip=new java.util.zip.ZipInputStream(new java.io.ByteArrayInputStream(fetchBytes(URI.create(url),cancelled)))){
+            java.util.zip.ZipEntry entry;while((entry=zip.getNextEntry())!=null){ensureNotCancelled(cancelled);if(entry.isDirectory())continue;if(files.size()>=MAX_PACKAGE_ENTRIES)throw new IllegalArgumentException("Archive has too many files");String path=entry.getName().replace('\\','/');if(path.startsWith("/")||path.contains("../"))throw new IllegalArgumentException("Unsafe path in archive");int slash=path.indexOf('/');if(slash<0)continue;byte[] bytes=readLimited(zip,cancelled);if(isText(bytes))files.put(path.substring(slash+1),new String(bytes,StandardCharsets.UTF_8));}
+        }
+        if(!files.containsKey("SKILL.md"))throw new IllegalStateException("Archive is missing SKILL.md");
+        return fromFiles(name,files,url,host.contains("modelscope")?"modelscope":"agentscope");
     }
 
     private Bundle resolveLobeHub(URI source, String version, AtomicBoolean cancelled)
