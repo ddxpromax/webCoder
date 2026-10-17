@@ -45,7 +45,7 @@ public class ToolGuardService {
 
     /** Tools whose primary parameter is a file path (File Guard applies). */
     public static final List<String> FILE_TOOLS =
-            List.of("read_file", "write_file", "edit_file", "append_file", "view_image");
+            List.of("read_file", "write_file", "edit_file", "append_file", "view_image", "view_video");
 
     /** One built-in rule (mirrors the frontend ToolGuardRule schema). */
     public record BuiltinRule(
