@@ -145,8 +145,10 @@ public class ConsoleController {
         long turnStartMs = System.currentTimeMillis();
         var modelSlot = modelRouting.resolveEffectiveModel(agentId);
 
-        Flux<String> streamed = agent.streamEvents(
-                new UserMessage(prompt), context
+        UserMessage userMessage = new UserMessage(prompt);
+        Flux<String> streamed = OverflowRecovery.recover(
+                agent.streamEvents(userMessage, context), agent,
+                userMessage, context
             )
             .concatMap(event -> {
                 try {
