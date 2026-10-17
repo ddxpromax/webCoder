@@ -187,6 +187,7 @@ public class HarnessAgentFactory {
             workspace, skills
         ));
         toolkit.registerTool(new WebTools());
+        toolkit.registerTool(new BrowserUseTool());
         toolkit.registerTool(new SendFileToUserTool(
             workspace, workingDirectory
         ));
