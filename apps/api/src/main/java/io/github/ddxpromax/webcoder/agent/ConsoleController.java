@@ -260,7 +260,8 @@ public class ConsoleController {
         RuntimeContext context = RuntimeContext.builder().sessionId(sessionId)
             .userId(text(body.get("user_id"), "web-user")).build();
         LoopSessionManager.Session session = loops.start(sessionId, command.modeId,
-            command.displayName, command.goal, command.maxIterations, command.maxTokens);
+            command.displayName, command.goal, command.maxIterations, command.maxTokens,
+            command.timeoutSeconds, command.completionGate, command.completionSignals, command.maxCompletionChecks);
         LoopAggregate aggregate = new LoopAggregate();
         String responseId = "response_" + UUID.randomUUID().toString().replace("-", "");
         long startedAt = System.currentTimeMillis();
@@ -301,7 +302,8 @@ public class ConsoleController {
         int split = trimmed.indexOf(' '); String slash = split < 0 ? trimmed.substring(1) : trimmed.substring(1, split);
         for (Map<String, Object> mode : customModes(agentId)) {
             if (slash.equalsIgnoreCase(text(mode.get("slash_command"), ""))) {
-                return new LoopCommand("custom:" + text(mode.get("id"), slash), slash, split < 0 ? "" : trimmed.substring(split + 1).trim(), integer(mode.get("max_iterations"), 20), integer(mode.get("max_tokens"), 300_000));
+                LoopPolicy policy = customPolicy(mode);
+                return new LoopCommand("custom:" + text(mode.get("id"), slash), slash, split < 0 ? "" : trimmed.substring(split + 1).trim(), policy.maxIterations, policy.maxTokens, policy.timeoutSeconds, policy.completionGate, policy.signals, policy.maxCompletionChecks);
             }
         }
         return null;
@@ -311,7 +313,8 @@ public class ConsoleController {
         Map<String, Object> running = agents.getRunningConfig(agentId);
         @SuppressWarnings("unchecked") Map<String, Object> loop = running.get("loop") instanceof Map<?, ?> map ? (Map<String, Object>) map : Map.of();
         @SuppressWarnings("unchecked") Map<String, Object> config = loop.get(mode) instanceof Map<?, ?> map ? (Map<String, Object>) map : Map.of();
-        return new LoopCommand(mode, mode, goal, integer(config.get("max_iterations"), 20), integer(config.get("max_tokens"), 300_000));
+        boolean completion = "goal".equals(mode);
+        return new LoopCommand(mode, mode, goal, integer(config.get("max_iterations"), 20), integer(config.get("max_tokens"), 300_000), "mission".equals(mode) ? 1800 : 0, completion, List.of("completed", "done", "finished"), 10);
     }
 
     @SuppressWarnings("unchecked") private List<Map<String, Object>> customModes(String agentId) {
@@ -319,8 +322,20 @@ public class ConsoleController {
         Object rawModes = loop.get("custom_modes"); if (!(rawModes instanceof List<?> modes)) return List.of();
         List<Map<String, Object>> result = new ArrayList<>(); for (Object mode : modes) if (mode instanceof Map<?, ?> item) result.add(new LinkedHashMap<>((Map<String, Object>) item)); return result;
     }
+    @SuppressWarnings("unchecked") private LoopPolicy customPolicy(Map<String, Object> mode) {
+        int iterations = 20; long tokens = 300_000; long timeout = 0; boolean completion = false; List<String> signals = List.of("completed", "done", "finished"); int checks = 3;
+        Object raw = mode.get("gates"); if (raw instanceof List<?> gates) for (Object item : gates) if (item instanceof Map<?, ?> gate && Boolean.TRUE.equals(gate.get("enabled"))) {
+            String type = text(gate.get("type"), ""); Map<String, Object> params = gate.get("params") instanceof Map<?, ?> map ? (Map<String, Object>) map : Map.of();
+            if ("iteration".equals(type)) iterations = integer(params.get("max_iterations"), iterations);
+            else if ("token_budget".equals(type)) tokens = integer(params.get("max_total_tokens"), (int) tokens);
+            else if ("timeout".equals(type)) timeout = integer(params.get("max_seconds"), 1);
+            else if ("completion_rubric".equals(type) || "qualitative_rubric".equals(type)) { completion = true; String signal = text(params.get("completion_signal"), ""); if (!signal.isBlank()) signals = List.of(signal); }
+        }
+        return new LoopPolicy(iterations, tokens, timeout, completion, signals, checks);
+    }
     private static int integer(Object value, int fallback) { return value instanceof Number number && number.intValue() > 0 ? number.intValue() : fallback; }
-    private record LoopCommand(String modeId, String displayName, String goal, int maxIterations, long maxTokens) { }
+    private record LoopPolicy(int maxIterations, long maxTokens, long timeoutSeconds, boolean completionGate, List<String> signals, int maxCompletionChecks) { }
+    private record LoopCommand(String modeId, String displayName, String goal, int maxIterations, long maxTokens, long timeoutSeconds, boolean completionGate, List<String> completionSignals, int maxCompletionChecks) { }
     private static final class LoopAggregate { int inputTokens; int outputTokens; final List<Map<String, Object>> messages = new ArrayList<>(); }
 
     @PostMapping("/console/chat/stop")
