@@ -24,6 +24,7 @@ import AppsPage from '@/majo/AppsPage.vue'
 import ChannelsPage from '@/majo/ChannelsPage.vue'
 import PluginHostPage from '@/majo/PluginHostPage.vue'
 import VoiceTranscriptionPage from '@/majo/VoiceTranscriptionPage.vue'
+import DebugPage from '@/majo/DebugPage.vue'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -54,6 +55,7 @@ const router = createRouter({
         { path: 'settings/environments', component: EnvironmentsPage },
         { path: 'settings/security', component: SecurityPage },
         { path: 'settings/voice-transcription', component: VoiceTranscriptionPage },
+        { path: 'settings/debug', component: DebugPage },
         { path: 'mcp', component: McpPage },
         { path: 'tools', component: ToolsPage },
         { path: 'token-usage', component: TokenUsagePage },
