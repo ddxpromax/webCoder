@@ -784,6 +784,21 @@ a {
   font-weight: 600;
   margin: 14px 0 5px;
 }
+.agent-config-card { min-width: 0; }
+.agent-config-tabs {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  margin: 0 0 16px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #333;
+}
+.agent-config-tabs button { white-space: nowrap; }
+.agent-config-tabs button.active {
+  background: var(--majo-accent);
+  color: #21150f;
+  border-color: var(--majo-accent);
+}
 .stacked-form {
   display: flex;
   flex-direction: column;

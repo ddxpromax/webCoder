@@ -7,6 +7,17 @@ export interface AgentInfo {
   backend?: string
 }
 
+export interface AgentProfile extends AgentInfo {
+  language?: string
+  workspace_dir?: string
+  active_model?: Record<string, unknown>
+}
+
+/** Full Majo execution configuration persisted for an agent. */
+export type AgentRunningConfig = Record<string, any> & {
+  approval_level?: string
+}
+
 export interface ChatSpec {
   id: string
   session_id: string
@@ -177,6 +188,22 @@ export async function streamSkillOptimization(
 
 export function listAgents() {
   return apiRequest<{ agents: AgentInfo[] }>('/agents')
+}
+
+export function getAgentProfile(agentId: string) {
+  return apiRequest<AgentProfile>(`/agents/${encodeURIComponent(agentId)}`)
+}
+
+export function getAgentRunningConfig(agentId: string) {
+  return apiRequest<AgentRunningConfig>('/workspace/running-config', {}, agentId)
+}
+
+export function updateAgentRunningConfig(agentId: string, config: AgentRunningConfig) {
+  return apiRequest<AgentRunningConfig>(
+    '/workspace/running-config',
+    { method: 'PUT', body: JSON.stringify(config) },
+    agentId,
+  )
 }
 
 export function listChats(agentId: string) {
