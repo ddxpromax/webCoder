@@ -200,6 +200,14 @@ public class SkillsController {
     @PostMapping({"/skills/pool/download", "/agents/{agentId}/skills/pool/download"})
     public Map<String, Object> downloadFromPool(@PathVariable(required = false) String agentId,
         @RequestBody Map<String, Object> body, HttpServletRequest request) {
+        if (Boolean.TRUE.equals(body.get("all_workspaces")) || body.get("targets") instanceof List<?>) {
+            List<String> targetIds=new java.util.ArrayList<>();
+            if(Boolean.TRUE.equals(body.get("all_workspaces")))for(Map<String,Object> profile:agents.listProfiles())targetIds.add(text(profile.get("id")));
+            else for(Object target:(List<?>)body.get("targets")){if(target instanceof Map<?,?> map)targetIds.add(text(map.get("workspace_id")));else targetIds.add(text(target));}
+            List<Map<String,Object>> results=new java.util.ArrayList<>();
+            for(String target:targetIds){if(target.isBlank())continue;Map<String,Object> item;try{item=new java.util.LinkedHashMap<>(pool.download(agents.workspaceDirForAgent(target),text(body.get("skill_name")),Boolean.TRUE.equals(body.get("overwrite")),Boolean.TRUE.equals(body.get("preview_only"))));}catch(Exception exception){item=new java.util.LinkedHashMap<>(Map.of("success",false,"reason",exception.getMessage()));}item.put("workspace_id",target);results.add(item);}
+            return Map.of("results",results);
+        }
         return pool.download(workspace(agentId, request), text(body.get("skill_name")),
             Boolean.TRUE.equals(body.get("overwrite")), Boolean.TRUE.equals(body.get("preview_only")));
     }
