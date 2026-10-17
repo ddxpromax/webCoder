@@ -70,4 +70,13 @@ class WorkspaceToolsTests {
             "append_file", "list_directory", "search_code", "find_symbol"
         );
     }
+
+    @Test
+    void screenshotToolExplainsHeadlessRuntimeLimit() {
+        var working = new MajoWorkingDirectory(workspace.toString());
+        if (java.awt.GraphicsEnvironment.isHeadless()) {
+            assertThat(new DesktopScreenshotTool(working).desktopScreenshot().getOutput().getFirst().toString())
+                .contains("no graphical session");
+        }
+    }
 }
