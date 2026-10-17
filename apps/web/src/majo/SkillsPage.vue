@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { apiRequest } from './api'
+import { apiRequest, streamSkillOptimization } from './api'
 import { workbench } from './state'
 
 interface SkillSpec {
@@ -40,6 +40,8 @@ const marketTaskId = ref('')
 const marketInstallName = ref('')
 const dependencies = ref<SkillDependencies | null>(null)
 const dependencyLoading = ref(false)
+const optimizing = ref(false)
+let optimizationAbort: AbortController | null = null
 
 const base = computed(() => `/agents/${encodeURIComponent(workbench.agentId)}/skills`)
 const selected = computed(() => skills.value.find((skill) => skill.name === selectedName.value))
@@ -297,6 +299,35 @@ async function cancelMarketInstall() {
   }
 }
 
+async function optimizeWithAi() {
+  if (!draftContent.value.trim() || optimizing.value) return
+  optimizing.value = true
+  error.value = ''
+  notice.value = ''
+  const original = draftContent.value
+  draftContent.value = ''
+  optimizationAbort = new AbortController()
+  try {
+    await streamSkillOptimization(
+      base.value, original, workbench.agentId,
+      (chunk) => { draftContent.value += chunk },
+      optimizationAbort.signal,
+    )
+    notice.value = 'Skill optimization completed. Review the result before saving.'
+  } catch (cause) {
+    if (!(cause instanceof DOMException && cause.name === 'AbortError')) {
+      error.value = cause instanceof Error ? cause.message : 'Could not optimize skill.'
+    }
+  } finally {
+    optimizing.value = false
+    optimizationAbort = null
+  }
+}
+
+function stopOptimization() {
+  optimizationAbort?.abort()
+}
+
 watch(() => workbench.agentId, () => {
   selectedName.value = ''
   creating.value = false
@@ -369,6 +400,8 @@ onMounted(() => void refresh())
           </template>
         </section>
         <div class="skills-editor-actions">
+          <button v-if="!optimizing" type="button" :disabled="!draftContent.trim()" @click="optimizeWithAi">Optimize with AI</button>
+          <button v-else type="button" @click="stopOptimization">Stop optimization</button>
           <button type="submit" class="primary" :disabled="saving">{{ saving ? 'Saving…' : 'Save skill' }}</button>
           <button v-if="selected" type="button" @click="publishToPool">Add to Skill Pool</button>
           <button v-if="selected && !selected.enabled" type="button" @click="remove">Delete</button>

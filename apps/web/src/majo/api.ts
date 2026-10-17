@@ -115,6 +115,53 @@ export async function apiRequest<T>(
   return response.json() as Promise<T>
 }
 
+/** Consume Majo's JSON-over-SSE skill optimization stream. */
+export async function streamSkillOptimization(
+  skillPath: string,
+  content: string,
+  agentId: string,
+  onChunk: (text: string) => void,
+  signal: AbortSignal,
+): Promise<void> {
+  const response = await fetch(`/api${skillPath}/ai/optimize/stream`, {
+    method: 'POST',
+    headers: {
+      Accept: 'text/event-stream',
+      'Content-Type': 'application/json',
+      ...agentHeaders(agentId),
+    },
+    body: JSON.stringify({ content, language: 'en' }),
+    signal,
+  })
+  if (!response.ok) {
+    throw new Error(`Could not optimize skill (HTTP ${response.status}).`)
+  }
+  if (!response.body) {
+    throw new Error('The optimization stream was not available.')
+  }
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const lines = buffer.split(/\r?\n/)
+    buffer = lines.pop() ?? ''
+    for (const rawLine of lines) {
+      const line = rawLine.trim()
+      if (!line.startsWith('data:')) continue
+      const payload = JSON.parse(line.substring(5).trim()) as {
+        text?: string; done?: boolean; error?: string
+      }
+      if (payload.error) throw new Error(payload.error)
+      if (payload.text) onChunk(payload.text)
+      if (payload.done) return
+    }
+  }
+}
+
 export function listAgents() {
   return apiRequest<{ agents: AgentInfo[] }>('/agents')
 }
