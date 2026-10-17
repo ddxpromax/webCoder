@@ -35,7 +35,7 @@ class DelegateExternalAgentToolTests {
             "local", Map.of("enabled", false, "command", "never-run", "args", List.of())
         ))));
         DelegateExternalAgentTool tool = new DelegateExternalAgentTool(
-            "default", directory, store, new SubagentTaskRegistry()
+            "default", directory, store, new SubagentTaskRegistry(), null
         );
 
         assertThat(tool.delegateExternalAgent("inspect this", "local", false))

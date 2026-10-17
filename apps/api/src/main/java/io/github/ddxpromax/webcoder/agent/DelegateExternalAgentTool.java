@@ -24,6 +24,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import io.github.ddxpromax.webcoder.acp.AcpPermissionBridge;
 
 /**
  * Majo-compatible ACP delegation over a Content-Length framed JSON-RPC
@@ -46,12 +47,14 @@ public class DelegateExternalAgentTool {
     private final Path workspace;
     private final AgentStore agents;
     private final SubagentTaskRegistry tasks;
+    private final AcpPermissionBridge permissions;
 
-    public DelegateExternalAgentTool(String agentId, Path workspace, AgentStore agents, SubagentTaskRegistry tasks) {
+    public DelegateExternalAgentTool(String agentId, Path workspace, AgentStore agents, SubagentTaskRegistry tasks, AcpPermissionBridge permissions) {
         this.agentId = agentId;
         this.workspace = workspace;
         this.agents = agents;
         this.tasks = tasks;
+        this.permissions = permissions;
     }
 
     @Tool(
@@ -188,7 +191,7 @@ public class DelegateExternalAgentTool {
         int id = frame.path("id").asInt();
         String method = frame.path("method").asText();
         if (method.endsWith("request_permission")) {
-            reply(output, id, Map.of("outcome", Map.of("outcome", "cancelled")));
+            reply(output, id, permissions == null ? Map.of("outcome", Map.of("outcome", "cancelled")) : permissions.resolve(frame.path("params")));
         } else {
             reply(output, id, Map.of("error", Map.of("code", -32601, "message", "Method is not supported by the delegating client.")));
         }

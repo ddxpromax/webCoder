@@ -102,6 +102,7 @@ public class ApprovalHook implements Hook, RuntimeContextAware {
             return Mono.just(event);
         }
         final ToolUseBlock toolUse = coerce(event, acting, initialToolUse);
+        ToolSessionContext.set(sessionId(event), agentId);
         if (!toolConfig.isEnabled(agentId, toolUse.getName())) {
             acting.setToolUse(rejected(
                 toolUse,
