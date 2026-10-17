@@ -179,6 +179,7 @@ public class HarnessAgentFactory {
         toolkit.registerTool(new SubagentTools(
             agentId, workspace, subagents
         ));
+        toolkit.registerTool(new ListAgentsTool(agents));
         toolkit.registerTool(new MemorySearchTool(
             agentId, memoryBackends
         ));
