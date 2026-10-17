@@ -9,6 +9,7 @@ import io.agentscope.core.hook.RuntimeContextAware;
 import io.agentscope.core.message.ToolCallState;
 import io.agentscope.core.message.ToolUseBlock;
 import java.util.Set;
+import java.util.Map;
 import java.nio.file.Path;
 import java.util.concurrent.atomic.AtomicReference;
 import io.github.ddxpromax.webcoder.mcp.McpRuntime;
@@ -92,10 +93,11 @@ public class ApprovalHook implements Hook, RuntimeContextAware {
         if (!(event instanceof PreActingEvent acting)) {
             return Mono.just(event);
         }
-        ToolUseBlock toolUse = acting.getToolUse();
-        if (toolUse == null) {
+        ToolUseBlock initialToolUse = acting.getToolUse();
+        if (initialToolUse == null) {
             return Mono.just(event);
         }
+        final ToolUseBlock toolUse = coerce(event, acting, initialToolUse);
         if (!toolConfig.isEnabled(agentId, toolUse.getName())) {
             acting.setToolUse(rejected(
                 toolUse,
@@ -165,6 +167,23 @@ public class ApprovalHook implements Hook, RuntimeContextAware {
             .content(reason)
             .state(ToolCallState.FINISHED)
             .build();
+    }
+
+    private static ToolUseBlock coerce(
+        HookEvent event, PreActingEvent acting, ToolUseBlock original
+    ) {
+        try {
+            Map<String, Object> schema = event.getAgent().getToolkit()
+                .getToolSchemas().stream()
+                .filter(item -> original.getName().equals(item.getName()))
+                .map(io.agentscope.core.model.ToolSchema::getParameters)
+                .findFirst().orElse(Map.of());
+            ToolCallCoercion.Coerced coerced = ToolCallCoercion.coerceStringFields(original.getInput(), schema);
+            if (!coerced.changed()) return original;
+            ToolUseBlock repaired = ToolUseBlock.builder().id(original.getId()).name(original.getName()).input(coerced.input()).content(original.getContent()).metadata(original.getMetadata()).state(original.getState()).build();
+            acting.setToolUse(repaired);
+            return repaired;
+        } catch (Exception ignored) { return original; }
     }
 
     @Override
