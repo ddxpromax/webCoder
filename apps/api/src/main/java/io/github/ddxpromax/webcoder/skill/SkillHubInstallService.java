@@ -167,6 +167,9 @@ public class SkillHubInstallService {
         if (host.equals("clawhub.ai") || host.equals("www.clawhub.ai")) {
             return resolveClawHub(uri, version, cancelled);
         }
+        if (host.equals("skills.sh") || host.equals("www.skills.sh")) {
+            return resolveSkillsSh(uri, version, cancelled);
+        }
         if (host.equals("github.com") || host.equals("www.github.com")) {
             return resolveGitHub(uri, version, cancelled);
         }
@@ -178,6 +181,23 @@ public class SkillHubInstallService {
         }
         ensureNotCancelled(cancelled);
         return parseBundle(fetchText(uri, cancelled), bundleUrl, "hub");
+    }
+
+    /**
+     * skills.sh publishes a GitHub owner, repository and skill-directory
+     * triplet. Resolve it through the same contents API path as a GitHub URL
+     * so revisions, cancellation and package limits remain identical.
+     */
+    private Bundle resolveSkillsSh(URI source, String requestedVersion,
+                                   AtomicBoolean cancelled)
+        throws IOException, InterruptedException {
+        String[] spec = extractSkillsShSpec(source);
+        if (spec == null) {
+            throw new IllegalArgumentException("Invalid skills.sh URL format");
+        }
+        return resolveGitHubDirectory(
+            spec[0], spec[1], spec[2], requestedVersion, "skills-sh", cancelled
+        );
     }
 
     private Bundle resolveArchiveHub(URI source, String version, AtomicBoolean cancelled)
@@ -226,6 +246,14 @@ public class SkillHubInstallService {
             path = String.join("/", java.util.Arrays.copyOfRange(parts, 4, parts.length));
             if (path.endsWith("/SKILL.md")) path = path.substring(0, path.length() - 9);
         }
+        return resolveGitHubDirectory(owner, repo, path, ref, "github", cancelled);
+    }
+
+    private Bundle resolveGitHubDirectory(String owner, String repo, String path,
+                                          String requestedVersion, String origin,
+                                          AtomicBoolean cancelled)
+        throws IOException, InterruptedException {
+        String ref = requestedVersion;
         if (ref == null || ref.isBlank()) {
             Map<String,Object> repository = object(new ObjectMapper().readValue(fetchText(
                 URI.create("https://api.github.com/repos/" + owner + "/" + repo), cancelled
@@ -237,7 +265,7 @@ public class SkillHubInstallService {
         githubCollect(owner, repo, path, ref, "", files, cancelled);
         if (!files.containsKey("SKILL.md")) throw new IllegalStateException("GitHub skill directory is missing SKILL.md");
         return fromFiles(path.isBlank() ? repo : path.substring(path.lastIndexOf('/') + 1), files,
-            "https://github.com/" + owner + "/" + repo, "github");
+            "https://github.com/" + owner + "/" + repo, origin);
     }
 
     private void githubCollect(String owner, String repo, String path, String ref,
@@ -502,6 +530,24 @@ public class SkillHubInstallService {
 
     private static String text(Object value) {
         return value == null ? "" : String.valueOf(value).trim();
+    }
+
+    static String[] extractSkillsShSpec(URI uri) {
+        String host = uri.getHost() == null ? "" : uri.getHost().toLowerCase();
+        if (!host.equals("skills.sh") && !host.equals("www.skills.sh")) {
+            return null;
+        }
+        String[] path = uri.getPath().split("/");
+        java.util.List<String> parts = new java.util.ArrayList<>();
+        for (String part : path) {
+            if (!part.isBlank()) {
+                parts.add(part);
+            }
+        }
+        if (parts.size() < 3) {
+            return null;
+        }
+        return new String[]{parts.get(0), parts.get(1), parts.get(2)};
     }
 
     private static void validateUrl(String value) {

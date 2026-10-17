@@ -3,6 +3,7 @@ package io.github.ddxpromax.webcoder.skill;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.net.URI;
 import org.junit.jupiter.api.Test;
 
 class SkillHubInstallServiceTests {
@@ -36,5 +37,19 @@ class SkillHubInstallServiceTests {
             "{\"name\":\"review\"}", "https://example.test/bundle", "hub"
         )).isInstanceOf(IllegalArgumentException.class)
             .hasMessage("Hub bundle missing SKILL.md content");
+    }
+
+    @Test
+    void parsesMajoSkillsShRepositoryAndDirectoryTriplet() {
+        assertThat(SkillHubInstallService.extractSkillsShSpec(
+            URI.create("https://skills.sh/vercel-labs/skills/find-skills")
+        )).containsExactly("vercel-labs", "skills", "find-skills");
+
+        assertThat(SkillHubInstallService.extractSkillsShSpec(
+            URI.create("https://skills.sh/vercel-labs/skills")
+        )).isNull();
+        assertThat(SkillHubInstallService.extractSkillsShSpec(
+            URI.create("https://skills.sh.other.example/a/b/c")
+        )).isNull();
     }
 }
