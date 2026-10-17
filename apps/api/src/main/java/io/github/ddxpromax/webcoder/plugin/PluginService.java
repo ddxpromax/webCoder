@@ -62,18 +62,38 @@ public class PluginService {
     }
 
     public boolean uninstall(String id) throws IOException {
-        Path directory = directory(id);
+        Path directory = installedDirectory(id);
         if (directory == null || !Files.isDirectory(directory)) return false;
         try (var paths = Files.walk(directory)) { for (Path path : paths.sorted(Comparator.reverseOrder()).toList()) Files.deleteIfExists(path); }
         return true;
     }
 
     public String file(String id, String relativePath) throws IOException {
-        Path directory = directory(id);
+        Path directory = installedDirectory(id);
         if (directory == null || relativePath == null) throw new IllegalArgumentException("File not found");
         Path file = directory.resolve(relativePath).normalize();
         if (!file.startsWith(directory) || !Files.isRegularFile(file)) throw new IllegalArgumentException("File not found");
         return Files.readString(file);
+    }
+
+    /** Lists only installed plugins that declare a browser-side entry point. */
+    public List<Map<String, Object>> frontendPlugins() {
+        return list().stream()
+            .filter(plugin -> plugin.get("frontend_entry") instanceof String entry && !entry.isBlank())
+            .toList();
+    }
+
+    /** Resolves a frontend asset without allowing a plugin to escape its own directory. */
+    public PluginAsset frontendAsset(String id, String relativePath) throws IOException {
+        Path directory = installedDirectory(id);
+        if (directory == null || relativePath == null || relativePath.isBlank()) {
+            throw new IllegalArgumentException("Plugin asset not found");
+        }
+        Path asset = directory.resolve(relativePath).normalize();
+        if (!asset.startsWith(directory) || !Files.isRegularFile(asset)) {
+            throw new IllegalArgumentException("Plugin asset not found");
+        }
+        return new PluginAsset(asset, Files.readAllBytes(asset));
     }
 
     private Path copyDirectory(Path source) throws IOException {
@@ -131,9 +151,23 @@ public class PluginService {
 
     private Path root() { return working.resolve("plugins"); }
     private Path requireDirectory(String id) throws IOException { if (!validId(id)) throw new IllegalArgumentException("Invalid plugin id"); Path root = root().toAbsolutePath().normalize(); Files.createDirectories(root); Path directory = root.resolve(id).normalize(); if (!directory.startsWith(root)) throw new IllegalArgumentException("Invalid plugin id"); return directory; }
-    private Path directory(String id) { try { return requireDirectory(id); } catch (Exception exception) { return null; } }
+    private Path installedDirectory(String id) {
+        try {
+            Path direct = requireDirectory(id);
+            if (Files.isDirectory(direct)) return direct;
+            if (!Files.isDirectory(root())) return null;
+            try (var paths = Files.list(root())) {
+                return paths.filter(Files::isDirectory).filter(path -> matches(path, id)).findFirst().orElse(null);
+            }
+        } catch (Exception exception) { return null; }
+    }
+    private boolean matches(Path directory, String id) {
+        if (directory.getFileName().toString().equals(id) || directory.getFileName().toString().startsWith(id + "-")) return true;
+        return id.equals(string(manifest(directory).get("id")));
+    }
     private boolean validId(String id) { return id != null && id.matches("[A-Za-z0-9._-]+") && !id.equals(".") && !id.equals(".."); }
     private void deleteTree(Path directory) throws IOException { if (!Files.exists(directory)) return; try (var paths = Files.walk(directory)) { for (Path path : paths.sorted(Comparator.reverseOrder()).toList()) Files.deleteIfExists(path); } }
     @SuppressWarnings("unchecked") private Map<String, Object> map(Object value) { return value instanceof Map<?, ?> map ? new LinkedHashMap<>((Map<String, Object>) map) : Map.of(); }
     private String string(Object value) { return value == null ? "" : String.valueOf(value); }
+    public record PluginAsset(Path path, byte[] content) { }
 }

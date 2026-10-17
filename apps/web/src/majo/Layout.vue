@@ -3,6 +3,7 @@ import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import { deleteChat, listAgents, listChats } from './api'
 import { selectAgent, workbench } from './state'
+import { pluginRoutes } from './pluginRuntime'
 
 const route = useRoute()
 const router = useRouter()
@@ -91,6 +92,9 @@ onBeforeUnmount(() => window.removeEventListener('majo-chats-changed', refresh))
           <RouterLink v-for="item in nav" :key="item.to" :to="item.to" class="nav-item">
             <span class="nav-icon">{{ item.icon }}</span
             >{{ item.label }}
+          </RouterLink>
+          <RouterLink v-for="plugin in pluginRoutes" :key="plugin.path" :to="plugin.path" class="nav-item">
+            <span class="nav-icon">{{ plugin.icon || '◇' }}</span>{{ plugin.label }}
           </RouterLink>
         </nav>
         <div class="sidebar-section-title">RECENT CHATS</div>

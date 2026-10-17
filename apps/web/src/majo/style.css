@@ -1318,6 +1318,7 @@ a {
 .market-card p { margin: 0 0 8px; color: #c4c4c4; font-size: 13px; }
 .market-card > span { flex-direction: column; align-items: flex-end; white-space: nowrap; }
 .market-card a { color: var(--majo-accent); font-size: 13px; }
+.plugin-host-page { overflow-y: auto; }.plugin-host { min-height: 240px; }
 @media (max-width: 760px) { .sync-row { grid-template-columns: 1fr; align-items: start; }.market-card { align-items: flex-start; flex-direction: column; }.market-card > span { align-items: flex-start; }.market-toolbar { justify-content: flex-start; }.market-toolbar > p { width: 100%; } }
 @media (max-width: 850px) {
   .skills-grid {
