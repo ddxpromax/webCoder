@@ -40,6 +40,19 @@ export interface ApprovalRequest {
   severity: string
 }
 
+export interface LoopMode {
+  id: string
+  name: string
+  slash_command: string
+  description: string
+  source: string
+}
+
+export interface LoopStatus {
+  state: string
+  mode: LoopMode | null
+}
+
 export interface CodingProject {
   path: string
   name: string
@@ -198,6 +211,14 @@ export function listApprovals(sessionId: string) {
   return apiRequest<{ pending_approvals: ApprovalRequest[] }>(
     `/approval/list?session_id=${encodeURIComponent(sessionId)}`,
   )
+}
+
+export function listLoopModes(agentId: string) {
+  return apiRequest<LoopMode[]>('/loops', {}, agentId)
+}
+
+export function getLoopStatus(agentId: string, sessionId: string) {
+  return apiRequest<LoopStatus>(`/loops/status?session_id=${encodeURIComponent(sessionId)}`, {}, agentId)
 }
 
 export function decideApproval(request: ApprovalRequest, approved: boolean) {

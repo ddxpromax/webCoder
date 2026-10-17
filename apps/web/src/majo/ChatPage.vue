@@ -1,16 +1,19 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   createChat,
   decideApproval,
   getChat,
+  getLoopStatus,
+  listLoopModes,
   listApprovals,
   messageText,
   stopChat,
   streamChat,
   type ApprovalRequest,
   type ChatMessage,
+  type LoopMode,
 } from './api'
 import { workbench } from './state'
 
@@ -27,6 +30,9 @@ const error = ref('')
 const loading = ref(false)
 const sending = ref(false)
 const approvals = ref<ApprovalRequest[]>([])
+const loopModes = ref<LoopMode[]>([])
+const selectedLoop = ref('')
+const activeLoop = ref('')
 const transcript = ref<HTMLElement | null>(null)
 let turnController: AbortController | null = null
 let approvalsTimer: ReturnType<typeof setInterval> | null = null
@@ -72,6 +78,18 @@ async function refreshApprovals() {
   }
 }
 
+async function loadLoopModes() {
+  try { loopModes.value = await listLoopModes(workbench.agentId) }
+  catch { loopModes.value = [] }
+}
+
+async function refreshLoopStatus(sessionId: string) {
+  try {
+    const status = await getLoopStatus(workbench.agentId, sessionId)
+    activeLoop.value = status.state === 'running' && status.mode ? status.mode.name : ''
+  } catch { activeLoop.value = '' }
+}
+
 async function answerApproval(item: ApprovalRequest, approved: boolean) {
   try {
     await decideApproval(item, approved)
@@ -103,14 +121,16 @@ async function submit() {
     }
     const chat = workbench.chats.find((item) => item.id === id)
     const sessionId = chat?.session_id || `console:${id}`
+    const mode = loopModes.value.find((item) => item.id === selectedLoop.value)
+    const outgoing = mode ? `/${mode.slash_command} ${text}` : text
     messages.value.push({
       id: `local-${Date.now()}`,
       role: 'user',
-      content: [{ type: 'text', text }],
+      content: [{ type: 'text', text: outgoing }],
     })
     await scrollToBottom()
     await streamChat(
-      { prompt: text, sessionId, agentId: workbench.agentId, workspace: props.workspace },
+      { prompt: outgoing, sessionId, agentId: workbench.agentId, workspace: props.workspace },
       {
         onText: (delta) => {
           liveText.value += delta
@@ -120,7 +140,7 @@ async function submit() {
           liveReasoning.value += delta
           void scrollToBottom()
         },
-        onDone: () => {},
+        onDone: () => { activeLoop.value = '' },
       },
       controller.signal,
     )
@@ -166,6 +186,15 @@ watch(sending, (active) => {
   approvalsTimer = active ? setInterval(() => void refreshApprovals(), 1500) : null
 })
 
+watch([() => workbench.agentId, chatId], () => void loadLoopModes(), { immediate: true })
+watch(sending, (active) => {
+  if (!active) return
+  const chat = workbench.chats.find((item) => item.id === chatId.value)
+  if (chat?.session_id) void refreshLoopStatus(chat.session_id)
+})
+
+onMounted(() => void loadLoopModes())
+
 onBeforeUnmount(() => {
   if (approvalsTimer) clearInterval(approvalsTimer)
   turnController?.abort()
@@ -207,7 +236,7 @@ onBeforeUnmount(() => {
         <div class="message-label">Majo</div>
         <div class="message-body">{{ liveText }}</div>
       </article>
-      <div v-if="sending && !liveText" class="turn-indicator">Agent is working…</div>
+      <div v-if="sending && !liveText" class="turn-indicator">{{ activeLoop ? `${activeLoop} loop is working…` : 'Agent is working…' }}</div>
     </div>
 
     <div v-if="approvals.length" class="approval-stack">
@@ -233,6 +262,7 @@ onBeforeUnmount(() => {
           @keydown.enter.exact.prevent="submit"
         />
         <div class="composer-footer">
+          <label class="loop-mode"><span>Mode</span><select v-model="selectedLoop" :disabled="sending"><option value="">Standard</option><option v-for="mode in loopModes.filter((item) => item.id !== 'default')" :key="mode.id" :value="mode.id">{{ mode.name }}</option></select></label>
           <span>{{
             workbench.agents.find((agent) => agent.id === workbench.agentId)?.name || 'Majo'
           }}</span>
