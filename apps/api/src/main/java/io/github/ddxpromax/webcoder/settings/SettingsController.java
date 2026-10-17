@@ -2,6 +2,7 @@ package io.github.ddxpromax.webcoder.settings;
 
 import java.util.Map;
 import io.github.ddxpromax.webcoder.agent.HeartbeatScheduler;
+import io.github.ddxpromax.webcoder.agent.AgentStore;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -18,10 +19,16 @@ import org.springframework.web.bind.annotation.RestController;
 public class SettingsController {
     private final SettingsService service;
     private final HeartbeatScheduler heartbeat;
+    private final AgentStore agents;
 
-    public SettingsController(SettingsService service, HeartbeatScheduler heartbeat) {
+    public SettingsController(
+        SettingsService service,
+        HeartbeatScheduler heartbeat,
+        AgentStore agents
+    ) {
         this.service = service;
         this.heartbeat = heartbeat;
+        this.agents = agents;
     }
 
     @GetMapping("/settings")
@@ -34,6 +41,23 @@ public class SettingsController {
         @RequestBody Map<String, String> body
     ) {
         return service.saveSettings(body);
+    }
+
+    /** Majo's default action for long-running tool-call offloading. */
+    @GetMapping("/settings/offload-policy")
+    public Map<String, String> getOffloadPolicy() {
+        Object value = agents.loadConfig().get("offload_policy");
+        return Map.of("default_action", value == null || String.valueOf(value).isBlank()
+            ? "keep_foreground" : String.valueOf(value));
+    }
+
+    @PutMapping("/settings/offload-policy")
+    public Map<String, String> setOffloadPolicy(
+        @RequestBody Map<String, String> body
+    ) {
+        String action = body.getOrDefault("default_action", "keep_foreground");
+        agents.updateRoot("offload_policy", action);
+        return Map.of("default_action", action);
     }
 
     @GetMapping("/config/theme")
