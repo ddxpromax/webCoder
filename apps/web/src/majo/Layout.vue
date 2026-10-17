@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
-import { archiveChat, deleteChat, listAgents, listChats, updateChat } from './api'
+import { archiveChat, deleteChat, getChat, listAgents, listChats, messageText, updateChat } from './api'
 import { selectAgent, workbench } from './state'
 import { pluginRoutes } from './pluginRuntime'
 
@@ -10,11 +10,16 @@ const router = useRouter()
 const sidebarOpen = ref(true)
 const showArchived = ref(false)
 const search = ref('')
+const searching = ref(false)
+const contentMatches = ref<Set<string> | null>(null)
+let searchVersion = 0
 const archivedChats = ref<typeof workbench.chats>([])
 const visibleChats = computed(() => {
   const query = search.value.trim().toLowerCase()
   const source = showArchived.value ? archivedChats.value : workbench.chats
-  return source.filter((chat) => !query || chat.name.toLowerCase().includes(query))
+  return source.filter((chat) => !query || (showArchived.value
+    ? chat.name.toLowerCase().includes(query)
+    : contentMatches.value?.has(chat.id)))
     .sort((left, right) => Number(Boolean(right.pinned)) - Number(Boolean(left.pinned)))
 })
 const nav = [
@@ -51,6 +56,23 @@ async function refresh() {
   }
 }
 
+async function searchContents() {
+  const version = ++searchVersion
+  const query = search.value.trim().toLowerCase()
+  if (!query) { contentMatches.value = null; searching.value = false; return }
+  searching.value = true
+  const matches = new Set<string>()
+  for (const chat of workbench.chats) {
+    if (version !== searchVersion) return
+    if (chat.name.toLowerCase().includes(query)) { matches.add(chat.id); continue }
+    try {
+      const history = await getChat(chat.id, workbench.agentId)
+      if (history.messages.some((message) => messageText(message.content).toLowerCase().includes(query))) matches.add(chat.id)
+    } catch { /* A deleted or inaccessible chat is skipped. */ }
+  }
+  if (version === searchVersion) { contentMatches.value = matches; searching.value = false }
+}
+
 async function togglePinned(id: string, pinned: boolean) {
   try { await updateChat(id, workbench.agentId, { pinned: !pinned }); await refresh() }
   catch (cause) { workbench.error = cause instanceof Error ? cause.message : 'Could not update the chat.' }
@@ -82,6 +104,7 @@ watch(
   () => workbench.agentId,
   () => void refresh(),
 )
+watch(search, () => void searchContents())
 onMounted(() => {
   void refresh()
   window.addEventListener('majo-chats-changed', refresh)
@@ -121,6 +144,7 @@ onBeforeUnmount(() => window.removeEventListener('majo-chats-changed', refresh))
         </nav>
         <div class="sidebar-section-title">{{ showArchived ? 'ARCHIVED CHATS' : 'RECENT CHATS' }}</div>
         <div class="chat-history-controls"><input v-model="search" aria-label="Search chats" placeholder="Search chats" /><button @click="showArchived = !showArchived">{{ showArchived ? 'Recent' : 'Archived' }}</button></div>
+        <p v-if="searching && !showArchived" class="sidebar-empty">Searching conversation history…</p>
         <div class="session-list">
           <div v-for="chat in visibleChats" :key="chat.id" class="session-row">
             <RouterLink
