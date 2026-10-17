@@ -8,6 +8,9 @@ import io.agentscope.harness.agent.HarnessAgent;
 import io.github.ddxpromax.webcoder.chat.ChatEntity;
 import io.github.ddxpromax.webcoder.chat.ChatService;
 import io.github.ddxpromax.webcoder.model.ModelRoutingService;
+import io.github.ddxpromax.webcoder.loop.LoopDecision;
+import io.github.ddxpromax.webcoder.loop.LoopGates;
+import io.github.ddxpromax.webcoder.loop.LoopSessionManager;
 import jakarta.servlet.http.HttpServletRequest;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -49,6 +52,8 @@ public class ConsoleController {
     private final MemoryCommandService memoryCommands;
     private final TokenUsageService tokenUsage;
     private final ModelRoutingService modelRouting;
+    private final AgentStore agents;
+    private final LoopSessionManager loops;
     private final ObjectMapper mapper;
     private final String version;
 
@@ -61,6 +66,8 @@ public class ConsoleController {
         MemoryCommandService memoryCommands,
         TokenUsageService tokenUsage,
         ModelRoutingService modelRouting,
+        AgentStore agents,
+        LoopSessionManager loops,
         ObjectMapper mapper,
         @Value("${majo.version:0.4.0}") String version
     ) {
@@ -72,6 +79,8 @@ public class ConsoleController {
         this.memoryCommands = memoryCommands;
         this.tokenUsage = tokenUsage;
         this.modelRouting = modelRouting;
+        this.agents = agents;
+        this.loops = loops;
         this.mapper = mapper;
         this.version = version;
     }
@@ -102,6 +111,11 @@ public class ConsoleController {
             return consoleMemoryCommand(
                 prompt, sessionId, agentId
             );
+        }
+        LoopCommand loopCommand = parseLoopCommand(prompt, agentId);
+        if (loopCommand != null) {
+            return consoleLoop(loopCommand, body, sessionId, agentId,
+                text(body.get("workspace"), ""), prompt);
         }
         String workspaceInput = text(body.get("workspace"), "");
         Path workspace = resolveWorkspace(workspaceInput, agentId);
@@ -225,6 +239,89 @@ public class ConsoleController {
             }
         });
     }
+
+    private Flux<String> consoleLoop(
+        LoopCommand command, Map<String, Object> body, String sessionId,
+        String agentId, String workspaceInput, String originalPrompt
+    ) {
+        QwenEvents events = new QwenEvents(mapper);
+        Path workspace = resolveWorkspace(workspaceInput, agentId);
+        ChatEntity chat = chats.getOrCreateBySession(agentId, sessionId, originalPrompt);
+        String chatId = chat.getId(); chats.setStatus(chatId, "running"); tasks.setRunning(chatId);
+        HarnessAgent agent;
+        try {
+            agent = agentFactory.builder(agentId, SYSTEM_PROMPT, workspace,
+                agentFactory.modelFor(agentId, HarnessAgentFactory.ModelFallback.SETTINGS)).build();
+            turns.register(chatId, agent);
+        } catch (Exception exception) {
+            tasks.setDone(chatId); chats.setStatus(chatId, "idle");
+            return Flux.just(events.error("Agent initialization failed: " + exception.getMessage()));
+        }
+        RuntimeContext context = RuntimeContext.builder().sessionId(sessionId)
+            .userId(text(body.get("user_id"), "web-user")).build();
+        LoopSessionManager.Session session = loops.start(sessionId, command.modeId,
+            command.displayName, command.goal, command.maxIterations, command.maxTokens);
+        LoopAggregate aggregate = new LoopAggregate();
+        String responseId = "response_" + UUID.randomUUID().toString().replace("-", "");
+        long startedAt = System.currentTimeMillis();
+        var modelSlot = modelRouting.resolveEffectiveModel(agentId);
+        return Flux.concat(
+            Flux.just(events.responseCreated(responseId, sessionId), events.responseInProgress(responseId, sessionId)),
+            streamLoopTurn(agent, command.goal.isBlank() ? originalPrompt : command.goal, context, session, aggregate, events),
+            Flux.defer(() -> Flux.just(events.responseCompleted(responseId, sessionId, aggregate.inputTokens, aggregate.outputTokens, aggregate.messages), events.turnUsage(sessionId, aggregate.inputTokens, aggregate.outputTokens)))
+        ).onErrorResume(exception -> Flux.just(events.error(Objects.toString(exception.getMessage(), "Agent loop failed"))))
+        .doFinally(signal -> {
+            try { approvals.cancelSession(sessionId); saveConsoleMessages(chatId, originalPrompt, aggregate.messages); chats.setStatus(chatId, "idle"); tasks.setDone(chatId); }
+            catch (Exception exception) { log.error("Failed to persist loop chat {}", chatId, exception); }
+            finally { loops.end(sessionId); turns.unregister(chatId); try { agentFactory.close(agent); } catch (Exception exception) { log.warn("Failed to close loop agent", exception); } }
+            if (aggregate.inputTokens > 0 || aggregate.outputTokens > 0) tokenUsage.record(agentId, chatId, modelSlot == null ? "" : modelSlot.providerId(), modelSlot == null ? "" : modelSlot.modelId(), aggregate.inputTokens, aggregate.outputTokens, System.currentTimeMillis() - startedAt);
+        });
+    }
+
+    private Flux<String> streamLoopTurn(HarnessAgent agent, String prompt, RuntimeContext context,
+                                         LoopSessionManager.Session session, LoopAggregate aggregate, QwenEvents events) {
+        TurnState turn = new TurnState(); UserMessage message = new UserMessage(prompt);
+        return OverflowRecovery.recover(agent.streamEvents(message, context), agent, message, context)
+            .concatMap(event -> Flux.fromIterable(encodeAgentEvent(event, turn, events)))
+            .concatWith(Flux.defer(() -> {
+                aggregate.messages.addAll(turn.completedMessages); aggregate.inputTokens += turn.inputTokens; aggregate.outputTokens += turn.outputTokens;
+                LoopDecision decision = LoopGates.afterTurn(session, turn.text.toString(), turn.inputTokens + turn.outputTokens);
+                session.lastResult = decision.reason();
+                return decision.continueLoop() && loops.active(session.sessionId)
+                    ? streamLoopTurn(agent, decision.continuation(), context, session, aggregate, events)
+                    : Flux.empty();
+            }));
+    }
+
+    private LoopCommand parseLoopCommand(String prompt, String agentId) {
+        String trimmed = prompt == null ? "" : prompt.stripLeading();
+        if (trimmed.startsWith("/goal")) return builtinLoop("goal", trimmed.substring(5).trim(), agentId);
+        if (trimmed.startsWith("/mission")) return builtinLoop("mission", trimmed.substring(8).trim(), agentId);
+        if (!trimmed.startsWith("/")) return null;
+        int split = trimmed.indexOf(' '); String slash = split < 0 ? trimmed.substring(1) : trimmed.substring(1, split);
+        for (Map<String, Object> mode : customModes(agentId)) {
+            if (slash.equalsIgnoreCase(text(mode.get("slash_command"), ""))) {
+                return new LoopCommand("custom:" + text(mode.get("id"), slash), slash, split < 0 ? "" : trimmed.substring(split + 1).trim(), integer(mode.get("max_iterations"), 20), integer(mode.get("max_tokens"), 300_000));
+            }
+        }
+        return null;
+    }
+
+    private LoopCommand builtinLoop(String mode, String goal, String agentId) {
+        Map<String, Object> running = agents.getRunningConfig(agentId);
+        @SuppressWarnings("unchecked") Map<String, Object> loop = running.get("loop") instanceof Map<?, ?> map ? (Map<String, Object>) map : Map.of();
+        @SuppressWarnings("unchecked") Map<String, Object> config = loop.get(mode) instanceof Map<?, ?> map ? (Map<String, Object>) map : Map.of();
+        return new LoopCommand(mode, mode, goal, integer(config.get("max_iterations"), 20), integer(config.get("max_tokens"), 300_000));
+    }
+
+    @SuppressWarnings("unchecked") private List<Map<String, Object>> customModes(String agentId) {
+        Object rawLoop = agents.getRunningConfig(agentId).get("loop"); if (!(rawLoop instanceof Map<?, ?> loop)) return List.of();
+        Object rawModes = loop.get("custom_modes"); if (!(rawModes instanceof List<?> modes)) return List.of();
+        List<Map<String, Object>> result = new ArrayList<>(); for (Object mode : modes) if (mode instanceof Map<?, ?> item) result.add(new LinkedHashMap<>((Map<String, Object>) item)); return result;
+    }
+    private static int integer(Object value, int fallback) { return value instanceof Number number && number.intValue() > 0 ? number.intValue() : fallback; }
+    private record LoopCommand(String modeId, String displayName, String goal, int maxIterations, long maxTokens) { }
+    private static final class LoopAggregate { int inputTokens; int outputTokens; final List<Map<String, Object>> messages = new ArrayList<>(); }
 
     @PostMapping("/console/chat/stop")
     public Map<String, Object> stopChat(

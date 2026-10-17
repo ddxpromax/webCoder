@@ -179,6 +179,7 @@ class ConsoleControllerTests {
         ModelRoutingService modelRouting = mock(
             ModelRoutingService.class
         );
+        AgentStore agents = mock(AgentStore.class);
         when(modelRouting.resolveEffectiveModel(anyString()))
             .thenReturn(new ModelRoutingService.ModelSlot(
                 "provider", "model"
@@ -202,6 +203,7 @@ class ConsoleControllerTests {
             new ConsoleController(
                 factory, chats, tasks, turns, approvals,
                 memoryCommands, tokenUsage, modelRouting,
+                agents, new io.github.ddxpromax.webcoder.loop.LoopSessionManager(),
                 mapper, "0.4.0"
             ),
             chats, tasks, turns, agent, memoryCommands,
