@@ -37,6 +37,13 @@ export interface ChatMessage {
   created_at?: string
 }
 
+export interface ChatAttachment {
+  name: string
+  url: string
+  type: string
+  size?: number
+}
+
 export interface ChatHistory {
   messages: ChatMessage[]
   status: string
@@ -358,12 +365,33 @@ export function messageText(content: unknown): string {
     .join('\n')
 }
 
+export function messageAttachments(content: unknown): ChatAttachment[] {
+  if (!Array.isArray(content)) return []
+  return content.flatMap((part) => {
+    if (typeof part !== 'object' || part === null) return []
+    const item = part as Record<string, unknown>
+    const type = String(item.type ?? '')
+    const url = type === 'image' ? String(item.image_url ?? '') : String(item.file_url ?? '')
+    if ((type !== 'image' && type !== 'file') || !url) return []
+    return [{ name: String(item.name ?? url.split('/').pop() ?? 'Attachment'), url, type }]
+  })
+}
+
+export function uploadChatFile(file: File, agentId: string) {
+  const form = new FormData()
+  form.append('file', file)
+  return apiRequest<{ url: string; file_name: string; stored_name?: string; size?: number }>(
+    '/console/upload', { method: 'POST', body: form }, agentId,
+  )
+}
+
 export async function streamChat(
   input: {
     prompt: string
     sessionId: string
     agentId: string
     workspace?: string
+    attachments?: ChatAttachment[]
   },
   handlers: {
     onText: (text: string) => void
@@ -380,7 +408,12 @@ export async function streamChat(
       ...agentHeaders(input.agentId),
     },
     body: JSON.stringify({
-      input: [{ role: 'user', content: [{ type: 'text', text: input.prompt }] }],
+      input: [{ role: 'user', content: [
+        { type: 'text', text: input.prompt },
+        ...(input.attachments || []).map((attachment) => attachment.type.startsWith('image/')
+          ? { type: 'image', image_url: attachment.url, name: attachment.name }
+          : { type: 'file', file_url: attachment.url, name: attachment.name }),
+      ] }],
       session_id: input.sessionId,
       user_id: 'default',
       channel: 'console',

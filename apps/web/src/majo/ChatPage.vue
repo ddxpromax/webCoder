@@ -9,9 +9,12 @@ import {
   getLoopStatus,
   listLoopModes,
   listApprovals,
+  messageAttachments,
   messageText,
   stopChat,
   streamChat,
+  uploadChatFile,
+  type ChatAttachment,
   type ApprovalRequest,
   type ChatMessage,
   type LoopMode,
@@ -37,6 +40,9 @@ const activeLoop = ref('')
 const transcript = ref<HTMLElement | null>(null)
 const recording = ref(false)
 const transcribing = ref(false)
+const attachments = ref<ChatAttachment[]>([])
+const uploading = ref(false)
+const attachmentInput = ref<HTMLInputElement | null>(null)
 interface ChatModel {
   id: string
   name?: string
@@ -201,13 +207,55 @@ async function answerApproval(item: ApprovalRequest, approved: boolean) {
   }
 }
 
+async function addAttachments(event: Event) {
+  const input = event.target as HTMLInputElement
+  const files = [...(input.files || [])]
+  input.value = ''
+  if (!files.length || uploading.value) return
+  uploading.value = true
+  error.value = ''
+  try {
+    for (const file of files) {
+      if (file.size > 100 * 1024 * 1024) {
+        throw new Error(`${file.name} exceeds the 100 MB attachment limit.`)
+      }
+      const uploaded = await uploadChatFile(file, workbench.agentId)
+      attachments.value.push({
+        name: uploaded.file_name || file.name,
+        url: uploaded.stored_name || uploaded.url,
+        type: file.type || 'application/octet-stream',
+        size: uploaded.size || file.size,
+      })
+    }
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : 'Could not upload the attachment.'
+  } finally {
+    uploading.value = false
+  }
+}
+
+function removeAttachment(index: number) {
+  attachments.value.splice(index, 1)
+}
+
+function attachmentPreviewUrl(attachment: ChatAttachment) {
+  if (attachment.url.startsWith('http://') || attachment.url.startsWith('https://')) return attachment.url
+  return `/api/files/preview/${encodeURIComponent(attachment.url.split('/').pop() || attachment.url)}`
+}
+
+function isImageAttachment(attachment: ChatAttachment) {
+  return attachment.type === 'image' || attachment.type.startsWith('image/')
+}
+
 async function submit() {
   const text = prompt.value.trim()
-  if (!text || sending.value) return
+  if ((!text && !attachments.value.length) || sending.value || uploading.value) return
   sending.value = true
   error.value = ''
   liveText.value = ''
   liveReasoning.value = ''
+  const outgoingAttachments = [...attachments.value]
+  const outgoingPrompt = text || 'Please analyze the attached file(s).'
   prompt.value = ''
   const controller = new AbortController()
   turnController = controller
@@ -224,15 +272,20 @@ async function submit() {
     const chat = workbench.chats.find((item) => item.id === id)
     const sessionId = chat?.session_id || `console:${id}`
     const mode = loopModes.value.find((item) => item.id === selectedLoop.value)
-    const outgoing = mode ? `/${mode.slash_command} ${text}` : text
+    const outgoing = mode ? `/${mode.slash_command} ${outgoingPrompt}` : outgoingPrompt
     messages.value.push({
       id: `local-${Date.now()}`,
       role: 'user',
-      content: [{ type: 'text', text: outgoing }],
+      content: [
+        { type: 'text', text: outgoing },
+        ...outgoingAttachments.map((attachment) => attachment.type.startsWith('image/')
+          ? { type: 'image', image_url: attachment.url, name: attachment.name }
+          : { type: 'file', file_url: attachment.url, name: attachment.name }),
+      ],
     })
     await scrollToBottom()
     await streamChat(
-      { prompt: outgoing, sessionId, agentId: workbench.agentId, workspace: props.workspace },
+      { prompt: outgoing, sessionId, agentId: workbench.agentId, workspace: props.workspace, attachments: outgoingAttachments },
       {
         onText: (delta) => {
           liveText.value += delta
@@ -246,6 +299,7 @@ async function submit() {
       },
       controller.signal,
     )
+    attachments.value = []
     await loadChat(id)
     window.dispatchEvent(new Event('majo-chats-changed'))
   } catch (cause) {
@@ -395,6 +449,12 @@ onBeforeUnmount(() => {
           {{ message.role === 'user' ? 'You' : message.type === 'reasoning' ? 'Thinking' : 'Majo' }}
         </div>
         <div class="message-body">{{ messageText(message.content) }}</div>
+        <div v-if="messageAttachments(message.content).length" class="message-attachments">
+          <a v-for="attachment in messageAttachments(message.content)" :key="attachment.url" :href="attachmentPreviewUrl(attachment)" target="_blank" rel="noopener">
+            <img v-if="isImageAttachment(attachment)" :src="attachmentPreviewUrl(attachment)" :alt="attachment.name" />
+            <span v-else>Attachment: {{ attachment.name }}</span>
+          </a>
+        </div>
       </article>
       <article v-if="liveReasoning" class="message reasoning">
         <div class="message-label">Thinking</div>
@@ -420,6 +480,9 @@ onBeforeUnmount(() => {
 
     <div class="composer-wrap">
       <p v-if="error" class="inline-error" role="alert">{{ error }}</p>
+      <div v-if="attachments.length" class="pending-attachments" aria-label="Attachments">
+        <span v-for="(attachment, index) in attachments" :key="`${attachment.url}-${index}`">{{ attachment.name }} <button type="button" aria-label="Remove attachment" :disabled="sending" @click="removeAttachment(index)">×</button></span>
+      </div>
       <form class="composer" @submit.prevent="submit">
         <textarea
           v-model="prompt"
@@ -431,12 +494,14 @@ onBeforeUnmount(() => {
         />
         <div class="composer-footer">
           <label class="loop-mode"><span>Mode</span><select v-model="selectedLoop" :disabled="sending"><option value="">Standard</option><option v-for="mode in loopModes.filter((item) => item.id !== 'default')" :key="mode.id" :value="mode.id">{{ mode.name }}</option></select></label>
+          <input ref="attachmentInput" class="visually-hidden" type="file" multiple @change="addAttachments" />
+          <button type="button" :disabled="sending || uploading" @click="attachmentInput?.click()">{{ uploading ? 'Uploading…' : 'Attach files' }}</button>
           <button type="button" :disabled="sending || transcribing" @click="toggleRecording">{{ transcribing ? 'Transcribing…' : recording ? 'Stop recording' : 'Record voice' }}</button>
           <span>{{
             workbench.agents.find((agent) => agent.id === workbench.agentId)?.name || 'Majo'
           }}</span>
           <button v-if="sending" type="button" class="send-button" @click="stop">Stop</button>
-          <button v-else type="submit" class="send-button" :disabled="!prompt.trim()">
+          <button v-else type="submit" class="send-button" :disabled="(!prompt.trim() && !attachments.length) || uploading">
             Send ↑
           </button>
         </div>

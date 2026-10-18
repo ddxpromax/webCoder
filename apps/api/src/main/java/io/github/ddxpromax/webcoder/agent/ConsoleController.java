@@ -3,6 +3,11 @@ package io.github.ddxpromax.webcoder.agent;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.agentscope.core.agent.RuntimeContext;
 import io.agentscope.core.event.ModelCallEndEvent;
+import io.agentscope.core.message.Base64Source;
+import io.agentscope.core.message.ContentBlock;
+import io.agentscope.core.message.DataBlock;
+import io.agentscope.core.message.ImageBlock;
+import io.agentscope.core.message.TextBlock;
 import io.agentscope.core.message.UserMessage;
 import io.agentscope.harness.agent.HarnessAgent;
 import io.github.ddxpromax.webcoder.chat.ChatEntity;
@@ -22,6 +27,7 @@ import io.github.ddxpromax.webcoder.loop.TokenBudgetGate;
 import jakarta.servlet.http.HttpServletRequest;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Base64;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -63,6 +69,7 @@ public class ConsoleController {
     private final AgentStore agents;
     private final LoopSessionManager loops;
     private final ObjectMapper mapper;
+    private final MajoWorkingDirectory workingDirectory;
     private final String version;
 
     public ConsoleController(
@@ -77,6 +84,7 @@ public class ConsoleController {
         AgentStore agents,
         LoopSessionManager loops,
         ObjectMapper mapper,
+        MajoWorkingDirectory workingDirectory,
         @Value("${majo.version:0.4.0}") String version
     ) {
         this.agentFactory = agentFactory;
@@ -90,6 +98,7 @@ public class ConsoleController {
         this.agents = agents;
         this.loops = loops;
         this.mapper = mapper;
+        this.workingDirectory = workingDirectory;
         this.version = version;
     }
 
@@ -102,6 +111,7 @@ public class ConsoleController {
         HttpServletRequest request
     ) {
         String prompt = extractPrompt(body);
+        List<Map<String, Object>> userContent = extractUserContent(body, prompt);
         QwenEvents events = new QwenEvents(mapper);
         if (prompt.isBlank()) {
             return Flux.just(events.error("prompt is required"));
@@ -123,7 +133,7 @@ public class ConsoleController {
         LoopCommand loopCommand = parseLoopCommand(prompt, agentId);
         if (loopCommand != null) {
             return consoleLoop(loopCommand, body, sessionId, agentId,
-                text(body.get("workspace"), ""), prompt);
+                text(body.get("workspace"), ""), prompt, userContent);
         }
         String workspaceInput = text(body.get("workspace"), "");
         Path workspace = resolveWorkspace(workspaceInput, agentId);
@@ -167,7 +177,7 @@ public class ConsoleController {
         long turnStartMs = System.currentTimeMillis();
         var modelSlot = modelRouting.resolveEffectiveModel(agentId);
 
-        UserMessage userMessage = new UserMessage(prompt);
+        UserMessage userMessage = buildUserMessage(userContent);
         Flux<String> streamed = OverflowRecovery.recover(
                 agent.streamEvents(userMessage, context), agent,
                 userMessage, context
@@ -213,9 +223,7 @@ public class ConsoleController {
         }).doFinally(signal -> {
             try {
                 approvals.cancelSession(sessionId);
-                saveConsoleMessages(
-                    chatId, prompt, state.completedMessages
-                );
+                saveConsoleMessages(chatId, userContent, state.completedMessages);
                 chats.setStatus(chatId, "idle");
                 tasks.setDone(chatId);
             } catch (Exception exception) {
@@ -250,7 +258,8 @@ public class ConsoleController {
 
     private Flux<String> consoleLoop(
         LoopCommand command, Map<String, Object> body, String sessionId,
-        String agentId, String workspaceInput, String originalPrompt
+        String agentId, String workspaceInput, String originalPrompt,
+        List<Map<String, Object>> userContent
     ) {
         QwenEvents events = new QwenEvents(mapper);
         Path workspace = resolveWorkspace(workspaceInput, agentId);
@@ -286,21 +295,23 @@ public class ConsoleController {
         var modelSlot = modelRouting.resolveEffectiveModel(agentId);
         return Flux.concat(
             Flux.just(events.responseCreated(responseId, sessionId), events.responseInProgress(responseId, sessionId)),
-            streamLoopTurn(agent, command.goal.isBlank() ? originalPrompt : command.goal, context, session, aggregate, events),
+            streamLoopTurn(agent, buildUserMessage(command.goal.isBlank()
+                ? userContent : withPrompt(userContent, command.goal)),
+                context, session, aggregate, events),
             Flux.defer(() -> Flux.just(events.responseCompleted(responseId, sessionId, aggregate.inputTokens, aggregate.outputTokens, aggregate.messages), events.turnUsage(sessionId, aggregate.inputTokens, aggregate.outputTokens)))
         ).onErrorResume(exception -> Flux.just(events.error(Objects.toString(exception.getMessage(), "Agent loop failed"))))
         .doFinally(signal -> {
-            try { approvals.cancelSession(sessionId); saveConsoleMessages(chatId, originalPrompt, aggregate.messages); chats.setStatus(chatId, "idle"); tasks.setDone(chatId); }
+            try { approvals.cancelSession(sessionId); saveConsoleMessages(chatId, userContent, aggregate.messages); chats.setStatus(chatId, "idle"); tasks.setDone(chatId); }
             catch (Exception exception) { log.error("Failed to persist loop chat {}", chatId, exception); }
             finally { loops.end(sessionId); turns.unregister(chatId); try { agentFactory.close(agent); } catch (Exception exception) { log.warn("Failed to close loop agent", exception); } }
             if (aggregate.inputTokens > 0 || aggregate.outputTokens > 0) tokenUsage.record(agentId, chatId, modelSlot == null ? "" : modelSlot.providerId(), modelSlot == null ? "" : modelSlot.modelId(), aggregate.inputTokens, aggregate.outputTokens, System.currentTimeMillis() - startedAt);
         });
     }
 
-    private Flux<String> streamLoopTurn(HarnessAgent agent, String prompt, RuntimeContext context,
+    private Flux<String> streamLoopTurn(HarnessAgent agent, UserMessage message, RuntimeContext context,
                                          LoopSessionManager.LoopSession session, LoopAggregate aggregate, QwenEvents events) {
         session.iteration++;
-        TurnState turn = new TurnState(); UserMessage message = new UserMessage(prompt);
+        TurnState turn = new TurnState();
         return OverflowRecovery.recover(agent.streamEvents(message, context), agent, message, context)
             .concatMap(event -> Flux.fromIterable(encodeAgentEvent(event, turn, events)))
             .concatWith(Flux.defer(() -> {
@@ -318,7 +329,7 @@ public class ConsoleController {
                 }
                 session.lastResult = result.reason;
                 return result.isContinue() && loops.isActive(session.sessionId)
-                    ? streamLoopTurn(agent, result.continuationMessage, context, session, aggregate, events)
+                    ? streamLoopTurn(agent, new UserMessage(result.continuationMessage), context, session, aggregate, events)
                     : Flux.empty();
             }));
     }
@@ -474,7 +485,7 @@ public class ConsoleController {
             events.turnUsage(sessionId, 0, 0)
         ).doFinally(signal -> {
             try {
-                saveConsoleMessages(chatId, prompt, completed);
+                saveConsoleMessages(chatId, textContent(prompt), completed);
                 chats.setStatus(chatId, "idle");
                 tasks.setDone(chatId);
             } catch (Exception exception) {
@@ -645,15 +656,13 @@ public class ConsoleController {
 
     private void saveConsoleMessages(
         String chatId,
-        String prompt,
+        List<Map<String, Object>> userContent,
         List<Map<String, Object>> completed
     ) throws Exception {
         List<Map<String, String>> messages = new ArrayList<>();
         Map<String, String> user = new LinkedHashMap<>();
         user.put("role", "user");
-        user.put("content", mapper.writeValueAsString(
-            List.of(Map.of("type", "text", "text", prompt))
-        ));
+        user.put("content", mapper.writeValueAsString(userContent));
         messages.add(user);
         for (Map<String, Object> event : completed) {
             Map<String, String> assistant = new LinkedHashMap<>();
@@ -702,6 +711,123 @@ public class ConsoleController {
             }
         }
         return "";
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<Map<String, Object>> extractUserContent(
+        Map<String, Object> body, String fallbackPrompt
+    ) {
+        Object input = body.get("input");
+        if (input instanceof List<?> messages && !messages.isEmpty()
+            && messages.getFirst() instanceof Map<?, ?> message
+            && message.get("content") instanceof List<?> rawParts) {
+            List<Map<String, Object>> parts = new ArrayList<>();
+            for (Object raw : rawParts) {
+                if (!(raw instanceof Map<?, ?> rawPart)) continue;
+                String type = text(rawPart.get("type"), "");
+                if ("text".equals(type)) {
+                    parts.add(Map.of("type", "text", "text",
+                        text(rawPart.get("text"), "")));
+                } else if ("image".equals(type)) {
+                    String path = text(rawPart.get("image_url"), "");
+                    if (!path.isBlank()) parts.add(Map.of("type", "image",
+                        "image_url", path, "name", text(rawPart.get("name"), "")));
+                } else if ("file".equals(type)) {
+                    String path = text(rawPart.get("file_url"), "");
+                    if (!path.isBlank()) parts.add(Map.of("type", "file",
+                        "file_url", path, "name", text(rawPart.get("name"), "")));
+                }
+            }
+            if (!parts.isEmpty()) return parts;
+        }
+        return textContent(fallbackPrompt);
+    }
+
+    private static List<Map<String, Object>> textContent(String value) {
+        return List.of(Map.of("type", "text", "text", value));
+    }
+
+    private static List<Map<String, Object>> withPrompt(
+        List<Map<String, Object>> content, String prompt
+    ) {
+        List<Map<String, Object>> result = new ArrayList<>();
+        boolean replaced = false;
+        for (Map<String, Object> part : content) {
+            if (!replaced && "text".equals(text(part.get("type"), ""))) {
+                result.add(Map.of("type", "text", "text", prompt));
+                replaced = true;
+            } else {
+                result.add(new LinkedHashMap<>(part));
+            }
+        }
+        if (!replaced) result.addFirst(Map.of("type", "text", "text", prompt));
+        return result;
+    }
+
+    private UserMessage buildUserMessage(List<Map<String, Object>> parts) {
+        List<ContentBlock> blocks = new ArrayList<>();
+        for (Map<String, Object> part : parts) {
+            String type = text(part.get("type"), "");
+            if ("text".equals(type)) {
+                blocks.add(TextBlock.builder().text(text(part.get("text"), "")).build());
+                continue;
+            }
+            String requested = "image".equals(type)
+                ? text(part.get("image_url"), "") : text(part.get("file_url"), "");
+            Path upload = resolveUpload(requested);
+            if (upload == null) {
+                blocks.add(TextBlock.builder().text("[Attachment is unavailable]").build());
+                continue;
+            }
+            try {
+                byte[] bytes = Files.readAllBytes(upload);
+                if (bytes.length > 20L * 1024 * 1024) {
+                    blocks.add(TextBlock.builder().text(
+                        "[Attachment omitted because it exceeds the 20 MB model-context limit: "
+                            + upload.getFileName()).build());
+                    continue;
+                }
+                String mime = mimeType(upload);
+                Base64Source source = new Base64Source(mime,
+                    Base64.getEncoder().encodeToString(bytes));
+                if ("image".equals(type) || mime.startsWith("image/")) {
+                    blocks.add(ImageBlock.builder().source(source).build());
+                } else {
+                    String name = text(part.get("name"), upload.getFileName().toString());
+                    blocks.add(DataBlock.builder().source(source).name(name).build());
+                }
+            } catch (Exception exception) {
+                blocks.add(TextBlock.builder().text("[Attachment could not be read: "
+                    + upload.getFileName() + "]").build());
+            }
+        }
+        return new UserMessage(blocks.isEmpty() ? List.of(
+            TextBlock.builder().text("").build()) : blocks);
+    }
+
+    private Path resolveUpload(String requested) {
+        if (requested == null || requested.isBlank()) return null;
+        Path name;
+        try { name = Path.of(requested).getFileName(); }
+        catch (Exception exception) { return null; }
+        if (name == null) return null;
+        Path directory = workingDirectory.resolve("uploads").toAbsolutePath().normalize();
+        Path target = directory.resolve(name.toString()).normalize();
+        return target.startsWith(directory) && Files.isRegularFile(target) ? target : null;
+    }
+
+    private static String mimeType(Path file) {
+        try {
+            String detected = Files.probeContentType(file);
+            if (detected != null && !detected.isBlank()) return detected;
+        } catch (Exception ignored) { }
+        String name = file.getFileName().toString().toLowerCase();
+        if (name.endsWith(".png")) return "image/png";
+        if (name.endsWith(".jpg") || name.endsWith(".jpeg")) return "image/jpeg";
+        if (name.endsWith(".gif")) return "image/gif";
+        if (name.endsWith(".webp")) return "image/webp";
+        if (name.endsWith(".pdf")) return "application/pdf";
+        return "application/octet-stream";
     }
 
     private static String newMessageId() {

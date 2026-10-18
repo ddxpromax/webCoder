@@ -19,15 +19,18 @@ import io.agentscope.core.event.TextBlockDeltaEvent;
 import io.agentscope.core.event.TextBlockEndEvent;
 import io.agentscope.core.event.TextBlockStartEvent;
 import io.agentscope.core.message.UserMessage;
+import io.agentscope.core.message.ImageBlock;
 import io.agentscope.core.model.ChatUsage;
 import io.agentscope.harness.agent.HarnessAgent;
 import io.github.ddxpromax.webcoder.chat.ChatEntity;
 import io.github.ddxpromax.webcoder.chat.ChatService;
 import io.github.ddxpromax.webcoder.model.ModelRoutingService;
 import java.nio.file.Path;
+import java.nio.file.Files;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentCaptor;
 import org.springframework.mock.web.MockHttpServletRequest;
 import reactor.core.publisher.Flux;
@@ -35,6 +38,8 @@ import reactor.core.publisher.Sinks;
 
 class ConsoleControllerTests {
     private final ObjectMapper mapper = new ObjectMapper();
+    @TempDir
+    Path temporaryDirectory;
 
     @Test
     void streamsMajoEventsAndPersistsCompletedMessages()
@@ -164,6 +169,39 @@ class ConsoleControllerTests {
     }
 
     @Test
+    void turnsUploadedImagesIntoModelContentAndPersistsTheirReference()
+        throws Exception {
+        Files.createDirectories(temporaryDirectory.resolve("uploads"));
+        Files.write(temporaryDirectory.resolve("uploads/screenshot.png"),
+            new byte[] {1, 2, 3});
+        Fixture fixture = fixture(Flux.empty());
+
+        fixture.controller.consoleChat(Map.of(
+            "input", List.of(Map.of("role", "user", "content", List.of(
+                Map.of("type", "text", "text", "Read this image"),
+                Map.of("type", "image", "image_url", "screenshot.png",
+                    "name", "screenshot.png")
+            ))),
+            "session_id", "attachment-session"
+        ), new MockHttpServletRequest()).collectList().block();
+
+        ArgumentCaptor<UserMessage> message = ArgumentCaptor.forClass(
+            UserMessage.class
+        );
+        verify(fixture.agent).streamEvents(
+            message.capture(), any(RuntimeContext.class)
+        );
+        assertThat(message.getValue().getContentBlocks(ImageBlock.class))
+            .hasSize(1);
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<Map<String, String>>> persisted =
+            ArgumentCaptor.forClass(List.class);
+        verify(fixture.chats).saveMessages(eq("chat-1"), persisted.capture());
+        assertThat(persisted.getValue().getFirst().get("content"))
+            .contains("image_url", "screenshot.png");
+    }
+
+    @Test
     void loopStatusIsIdleWithoutASelectedLoopSession() {
         Fixture fixture = fixture(Flux.empty());
         assertThat(fixture.controller.loopStatus(null, null))
@@ -212,7 +250,7 @@ class ConsoleControllerTests {
                 factory, chats, tasks, turns, approvals,
                 memoryCommands, tokenUsage, modelRouting,
                 agents, new io.github.ddxpromax.webcoder.loop.LoopSessionManager(),
-                mapper, "0.4.0"
+                mapper, new MajoWorkingDirectory(temporaryDirectory.toString()), "0.4.0"
             ),
             chats, tasks, turns, agent, memoryCommands,
             tokenUsage
