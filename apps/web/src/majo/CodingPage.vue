@@ -16,6 +16,8 @@ import { workbench } from './state'
 const project = ref<CodingProject | null>(null)
 const files = ref<CodeFile[]>([])
 interface EditorTab { path: string; content: string; original: string }
+interface FileTreeNode { name: string; path: string; directory: boolean; file?: CodeFile; children: FileTreeNode[] }
+interface FileTreeRow { name: string; path: string; directory: boolean; file?: CodeFile; depth: number }
 const tabs = ref<EditorTab[]>([])
 const activeTabPath = ref('')
 const activeTab = computed(() => tabs.value.find((tab) => tab.path === activeTabPath.value))
@@ -33,7 +35,36 @@ const projectPickerOpen = ref(false)
 const codingModeEnabled = ref(false)
 const availableProjects = ref<Array<{ path: string; name: string }>>([])
 const tabStorageKey = computed(() => `majo:coding-tabs:${workbench.agentId}`)
+const expandedDirectories = ref(new Set<string>())
 let refreshVersion = 0
+
+const fileTreeRows = computed<FileTreeRow[]>(() => {
+  const roots: FileTreeNode[] = []
+  const byPath = new Map<string, FileTreeNode>()
+  for (const file of files.value) {
+    const pieces = file.path.split('/').filter(Boolean)
+    for (let index = 0; index < pieces.length; index += 1) {
+      const path = pieces.slice(0, index + 1).join('/')
+      if (byPath.has(path)) continue
+      const directory = index < pieces.length - 1
+      const node: FileTreeNode = { name: pieces[index] || path, path, directory, file: directory ? undefined : file, children: [] }
+      byPath.set(path, node)
+      const parent = index ? byPath.get(pieces.slice(0, index).join('/')) : undefined
+      if (parent) parent.children.push(node)
+      else roots.push(node)
+    }
+  }
+  const rows: FileTreeRow[] = []
+  const visit = (nodes: FileTreeNode[], depth: number) => {
+    nodes.sort((left, right) => Number(right.directory) - Number(left.directory) || left.name.localeCompare(right.name))
+    for (const node of nodes) {
+      rows.push({ ...node, depth })
+      if (node.directory && expandedDirectories.value.has(node.path)) visit(node.children, depth + 1)
+    }
+  }
+  visit(roots, 0)
+  return rows
+})
 
 function persistTabs() {
   try { window.localStorage.setItem(tabStorageKey.value, JSON.stringify(tabs.value.map((tab) => tab.path))) }
@@ -112,6 +143,17 @@ async function openFile(file: CodeFile) {
     persistTabs()
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : 'Could not open file.'
+  }
+}
+
+function selectTreeRow(row: FileTreeRow) {
+  if (row.directory) {
+    const next = new Set(expandedDirectories.value)
+    if (next.has(row.path)) next.delete(row.path)
+    else next.add(row.path)
+    expandedDirectories.value = next
+  } else if (row.file) {
+    void openFile(row.file)
   }
 }
 
@@ -215,14 +257,15 @@ onMounted(() => void refresh())
       <p v-if="loading" class="sidebar-empty">Loading files…</p>
       <div class="file-list">
         <button
-          v-for="file in files"
-          :key="file.path"
+          v-for="row in fileTreeRows"
+          :key="row.path"
           class="file-row"
-          :class="{ selected: selectedPath === file.path }"
-          :title="file.path"
-          @click="openFile(file)"
+          :class="{ selected: selectedPath === row.path, directory: row.directory }"
+          :style="{ paddingLeft: `${10 + row.depth * 14}px` }"
+          :title="row.path"
+          @click="selectTreeRow(row)"
         >
-          ▤ {{ file.path }}
+          {{ row.directory ? (expandedDirectories.has(row.path) ? '▾' : '▸') : '▤' }} {{ row.name }}
         </button>
       </div>
     </aside>
