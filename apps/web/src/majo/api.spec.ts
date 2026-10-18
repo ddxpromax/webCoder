@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { messageText, streamChat } from './api'
+import { messageAttachments, messageText, streamChat } from './api'
 
 afterEach(() => vi.unstubAllGlobals())
 
@@ -13,6 +13,7 @@ function streamResponse(events: Record<string, unknown>[]): Response {
       controller.close()
     },
   })
+
   return new Response(source, {
     headers: { 'Content-Type': 'text/event-stream' },
   })
@@ -77,6 +78,26 @@ describe('Majo console stream', () => {
       'before completion',
     )
   })
+
+  it('serializes queued attachment URLs as Majo input content blocks', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(streamResponse([
+      { object: 'response', status: 'completed' },
+    ]))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await streamChat(
+      {
+        prompt: 'Inspect this', sessionId: 's', agentId: 'default',
+        attachments: [{ name: 'screen.png', url: 'stored-screen.png', type: 'image/png' }],
+      },
+      { onText: vi.fn(), onReasoning: vi.fn(), onDone: vi.fn() },
+      new AbortController().signal,
+    )
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/console/chat', expect.objectContaining({
+      body: expect.stringContaining('"image_url":"stored-screen.png"'),
+    }))
+  })
 })
 
 it('extracts text from persisted content arrays', () => {
@@ -87,4 +108,14 @@ it('extracts text from persisted content arrays', () => {
       { type: 'text', text: 'second' },
     ]),
   ).toBe('first\nsecond')
+})
+
+it('extracts persisted file and image references', () => {
+  expect(messageAttachments([
+    { type: 'image', image_url: 'image.png', name: 'Image' },
+    { type: 'file', file_url: 'notes.txt', name: 'Notes' },
+  ])).toEqual([
+    { type: 'image', url: 'image.png', name: 'Image' },
+    { type: 'file', url: 'notes.txt', name: 'Notes' },
+  ])
 })

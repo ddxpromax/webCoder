@@ -20,6 +20,15 @@ import {
   type LoopMode,
 } from './api'
 import { workbench } from './state'
+import {
+  MAX_QUEUE_SIZE,
+  createQueueItem,
+  queueStorageKey,
+  readQueue,
+  withQueueSendLock,
+  writeQueue,
+  type QueueItem,
+} from './messageQueue'
 
 const props = defineProps<{ workspace?: string }>()
 
@@ -43,6 +52,10 @@ const transcribing = ref(false)
 const attachments = ref<ChatAttachment[]>([])
 const uploading = ref(false)
 const attachmentInput = ref<HTMLInputElement | null>(null)
+const queuedTurns = ref<QueueItem[]>([])
+const drainingQueue = ref(false)
+const lastTurnSucceeded = ref(false)
+const queueKey = computed(() => queueStorageKey(workbench.agentId, chatId.value || 'new'))
 interface ChatModel {
   id: string
   name?: string
@@ -247,10 +260,98 @@ function isImageAttachment(attachment: ChatAttachment) {
   return attachment.type === 'image' || attachment.type.startsWith('image/')
 }
 
+function persistQueue() {
+  writeQueue(queueKey.value, queuedTurns.value)
+}
+
+function loadQueue() {
+  queuedTurns.value = readQueue(queueKey.value)
+}
+
+function queueDraft() {
+  const text = prompt.value.trim()
+  if ((!text && !attachments.value.length) || uploading.value) return
+  if (queuedTurns.value.length >= MAX_QUEUE_SIZE) {
+    error.value = `The message queue is full (${MAX_QUEUE_SIZE} items).`
+    return
+  }
+  queuedTurns.value.push(createQueueItem(
+    text || 'Please analyze the attached file(s).',
+    [...attachments.value],
+    selectedLoop.value,
+  ))
+  persistQueue()
+  prompt.value = ''
+  attachments.value = []
+  error.value = ''
+}
+
+function removeQueuedTurn(id: string) {
+  queuedTurns.value = queuedTurns.value.filter((item) => item.id !== id)
+  persistQueue()
+}
+
+function onComposerKeydown(event: KeyboardEvent) {
+  if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return
+  event.preventDefault()
+  if (event.ctrlKey || event.metaKey || sending.value || queuedTurns.value.length) {
+    queueDraft()
+    if (!sending.value) void drainQueue()
+    return
+  }
+  void submit()
+}
+
+async function drainQueue() {
+  if (!chatId.value || sending.value || drainingQueue.value || !queuedTurns.value.length) return
+  await withQueueSendLock(queueKey.value, async () => {
+    if (sending.value || drainingQueue.value) return
+    drainingQueue.value = true
+    try {
+      while (!sending.value && queuedTurns.value.length) {
+        const next = queuedTurns.value[0]
+        if (!next) break
+        next.status = 'sending'
+        next.error = undefined
+        persistQueue()
+        prompt.value = next.text
+        attachments.value = [...next.attachments]
+        selectedLoop.value = next.loopMode
+        await submit()
+        if (lastTurnSucceeded.value) {
+          queuedTurns.value.shift()
+        } else {
+          next.status = 'failed'
+          next.error = error.value || 'The turn did not complete.'
+          break
+        }
+        persistQueue()
+      }
+    } finally {
+      drainingQueue.value = false
+      persistQueue()
+    }
+  })
+}
+
+function syncQueueFromStorage(event: StorageEvent) {
+  if (event.key === queueKey.value) loadQueue()
+}
+
 async function submit() {
   const text = prompt.value.trim()
-  if ((!text && !attachments.value.length) || sending.value || uploading.value) return
+  if ((!text && !attachments.value.length) || uploading.value) return
+  if (sending.value) {
+    queueDraft()
+    return
+  }
+  if (queuedTurns.value.length && !drainingQueue.value) {
+    queueDraft()
+    void drainQueue()
+    return
+  }
   sending.value = true
+  lastTurnSucceeded.value = false
   error.value = ''
   liveText.value = ''
   liveReasoning.value = ''
@@ -299,6 +400,7 @@ async function submit() {
       },
       controller.signal,
     )
+    lastTurnSucceeded.value = true
     attachments.value = []
     await loadChat(id)
     window.dispatchEvent(new Event('majo-chats-changed'))
@@ -313,6 +415,7 @@ async function submit() {
     approvals.value = []
     sending.value = false
     if (turnController === controller) turnController = null
+    if (queuedTurns.value.length && !drainingQueue.value) void drainQueue()
   }
 }
 
@@ -373,15 +476,23 @@ watch(sending, (active) => {
 
 watch([() => workbench.agentId, chatId], () => void loadLoopModes(), { immediate: true })
 watch(() => workbench.agentId, () => void loadModels(), { immediate: true })
+watch(queueKey, () => loadQueue(), { immediate: true })
+watch([() => queuedTurns.value.length, sending, chatId], ([count, active, id]) => {
+  if (count && !active && id) void drainQueue()
+}, { immediate: true })
 watch(sending, (active) => {
   if (!active) return
   const chat = workbench.chats.find((item) => item.id === chatId.value)
   if (chat?.session_id) void refreshLoopStatus(chat.session_id)
 })
 
-onMounted(() => void loadLoopModes())
+onMounted(() => {
+  void loadLoopModes()
+  window.addEventListener('storage', syncQueueFromStorage)
+})
 
 onBeforeUnmount(() => {
+  window.removeEventListener('storage', syncQueueFromStorage)
   if (approvalsTimer) clearInterval(approvalsTimer)
   turnController?.abort()
   if (recording.value) recorder?.stop()
@@ -489,23 +600,31 @@ onBeforeUnmount(() => {
           aria-label="Message"
           placeholder="Ask anything, or describe a coding task…"
           rows="3"
-          :disabled="sending"
-          @keydown.enter.exact.prevent="submit"
+          :disabled="uploading"
+          @keydown="onComposerKeydown"
         />
         <div class="composer-footer">
           <label class="loop-mode"><span>Mode</span><select v-model="selectedLoop" :disabled="sending"><option value="">Standard</option><option v-for="mode in loopModes.filter((item) => item.id !== 'default')" :key="mode.id" :value="mode.id">{{ mode.name }}</option></select></label>
           <input ref="attachmentInput" class="visually-hidden" type="file" multiple @change="addAttachments" />
-          <button type="button" :disabled="sending || uploading" @click="attachmentInput?.click()">{{ uploading ? 'Uploading…' : 'Attach files' }}</button>
+          <button type="button" :disabled="uploading" @click="attachmentInput?.click()">{{ uploading ? 'Uploading…' : 'Attach files' }}</button>
           <button type="button" :disabled="sending || transcribing" @click="toggleRecording">{{ transcribing ? 'Transcribing…' : recording ? 'Stop recording' : 'Record voice' }}</button>
           <span>{{
             workbench.agents.find((agent) => agent.id === workbench.agentId)?.name || 'Majo'
           }}</span>
           <button v-if="sending" type="button" class="send-button" @click="stop">Stop</button>
           <button v-else type="submit" class="send-button" :disabled="(!prompt.trim() && !attachments.length) || uploading">
-            Send ↑
+            {{ queuedTurns.length ? 'Queue ↑' : 'Send ↑' }}
           </button>
         </div>
       </form>
+      <section v-if="queuedTurns.length" class="turn-queue" aria-label="Message queue">
+        <header><strong>Queued messages</strong><span>{{ queuedTurns.length }}/{{ MAX_QUEUE_SIZE }}</span></header>
+        <div v-for="item in queuedTurns" :key="item.id" class="queued-turn" :class="item.status">
+          <span>{{ item.text }}</span><small v-if="item.attachments.length">{{ item.attachments.length }} attachment{{ item.attachments.length === 1 ? '' : 's' }}</small>
+          <em>{{ item.status === 'sending' ? 'Sending…' : item.status === 'failed' ? 'Failed' : 'Pending' }}</em>
+          <button type="button" :disabled="item.status === 'sending'" @click="removeQueuedTurn(item.id)">Remove</button>
+        </div>
+      </section>
       <p class="composer-hint">AI can make mistakes. Review changes before using them.</p>
     </div>
   </section>

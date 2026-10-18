@@ -349,6 +349,14 @@ a {
 .pending-attachments { display: flex; flex-wrap: wrap; gap: 7px; max-width: 800px; margin: 0 auto 7px; }
 .pending-attachments span { display: inline-flex; align-items: center; gap: 5px; max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; background: #303030; border: 1px solid #474747; border-radius: 6px; padding: 4px 7px; color: #d7d7d7; font-size: 12px; }
 .pending-attachments button { border: 0; background: transparent; color: #aaa; cursor: pointer; font-size: 15px; line-height: 1; padding: 0; }
+.turn-queue { max-width: 800px; margin: 9px auto 0; border: 1px solid #3c3c3c; border-radius: 8px; overflow: hidden; background: #202020; }
+.turn-queue header { display: flex; justify-content: space-between; padding: 7px 10px; border-bottom: 1px solid #363636; color: #c8c8c8; font-size: 12px; }
+.queued-turn { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; align-items: center; gap: 8px; padding: 7px 10px; border-top: 1px solid #303030; color: #d5d5d5; font-size: 12px; }
+.queued-turn:first-of-type { border-top: 0; }
+.queued-turn > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.queued-turn small, .queued-turn em { color: #999; font-style: normal; }
+.queued-turn.failed em { color: #e18a8a; }
+.queued-turn button { border: 0; border-radius: 4px; background: #333; color: #d8d8d8; padding: 3px 6px; cursor: pointer; font-size: 11px; }
 .message.reasoning .message-body {
   color: #999;
   font-size: 13px;
