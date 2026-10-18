@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
-import { archiveChat, deleteChat, getChat, listAgents, listChats, messageText, updateChat } from './api'
+import { apiRequest, archiveChat, deleteChat, getChat, listAgents, listChats, messageText, updateChat } from './api'
 import { selectAgent, workbench } from './state'
 import { pluginRoutes } from './pluginRuntime'
 
@@ -12,6 +12,7 @@ const showArchived = ref(false)
 const search = ref('')
 const searching = ref(false)
 const contentMatches = ref<Set<string> | null>(null)
+const codingMode = ref(false)
 let searchVersion = 0
 const archivedChats = ref<typeof workbench.chats>([])
 const visibleChats = computed(() => {
@@ -56,6 +57,11 @@ async function refresh() {
   } finally {
     workbench.loading = false
   }
+}
+
+async function refreshCodingMode() {
+  try { codingMode.value = (await apiRequest<{ enabled: boolean }>('/coding-mode', {}, workbench.agentId)).enabled }
+  catch { codingMode.value = false }
 }
 
 async function searchContents() {
@@ -104,14 +110,19 @@ async function removeChat(id: string) {
 
 watch(
   () => workbench.agentId,
-  () => void refresh(),
+  () => { void refresh(); void refreshCodingMode() },
 )
 watch(search, () => void searchContents())
 onMounted(() => {
   void refresh()
+  void refreshCodingMode()
   window.addEventListener('majo-chats-changed', refresh)
+  window.addEventListener('majo-coding-mode-changed', refreshCodingMode)
 })
-onBeforeUnmount(() => window.removeEventListener('majo-chats-changed', refresh))
+onBeforeUnmount(() => {
+  window.removeEventListener('majo-chats-changed', refresh)
+  window.removeEventListener('majo-coding-mode-changed', refreshCodingMode)
+})
 </script>
 
 <template>
@@ -136,7 +147,7 @@ onBeforeUnmount(() => window.removeEventListener('majo-chats-changed', refresh))
     <div class="workbench-body">
       <aside v-if="sidebarOpen" class="sidebar">
         <nav aria-label="Main navigation">
-          <RouterLink v-for="item in nav" :key="item.to" :to="item.to" class="nav-item">
+          <RouterLink v-for="item in nav" :key="item.to" :to="item.label === 'Chat' && codingMode ? '/coding' : item.to" class="nav-item">
             <span class="nav-icon">{{ item.icon }}</span
             >{{ item.label }}
           </RouterLink>

@@ -27,11 +27,12 @@ import VoiceTranscriptionPage from '@/majo/VoiceTranscriptionPage.vue'
 import DebugPage from '@/majo/DebugPage.vue'
 import HeartbeatPage from '@/majo/HeartbeatPage.vue'
 import AcpPage from '@/majo/AcpPage.vue'
+import RootRedirect from '@/majo/RootRedirect.vue'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
-    { path: '/', redirect: '/chat' },
+    { path: '/', component: RootRedirect },
     {
       path: '/console/:pathMatch(.*)*',
       redirect: (to) => {
@@ -70,6 +71,16 @@ const router = createRouter({
         { path: 'checkpoints', component: CheckpointsPage },
         { path: 'heartbeat', component: HeartbeatPage },
         { path: 'acp', component: AcpPage },
+        { path: 'ACP', redirect: '/acp' },
+        { path: 'workspace', redirect: '/files' },
+        { path: 'cron-jobs', redirect: '/cron' },
+        { path: 'agent-config', redirect: '/agents' },
+        { path: 'environments', redirect: '/settings/environments' },
+        { path: 'security', redirect: '/settings/security' },
+        { path: 'voice-transcription', redirect: '/settings/voice-transcription' },
+        { path: 'debug', redirect: '/settings/debug' },
+        { path: 'plugin-manager', redirect: '/apps' },
+        { path: 'apps/:appId', component: AppsPage },
       ],
     },
   ],

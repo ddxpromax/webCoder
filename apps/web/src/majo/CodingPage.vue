@@ -202,6 +202,7 @@ async function toggleCodingMode() {
       workbench.agentId,
     )
     codingModeEnabled.value = result.enabled
+    window.dispatchEvent(new Event('majo-coding-mode-changed'))
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : 'Could not change Coding Mode.'
   }
