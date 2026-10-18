@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import ChatPage from './ChatPage.vue'
 import GitPanel from './GitPanel.vue'
+import MonacoCodeEditor, { disposeMonacoModel, disposeMonacoModels } from './MonacoCodeEditor.vue'
 import {
   apiRequest,
   agentHeaders,
@@ -287,6 +288,7 @@ function closeTab(path: string) {
   const tab = tabs.value[index]
   if (tab && tab.content !== tab.original && !window.confirm(`Close ${path} without saving changes?`)) return
   tabs.value.splice(index, 1)
+  disposeMonacoModel(path)
   if (activeTabPath.value === path) activeTabPath.value = tabs.value[index]?.path || tabs.value[index - 1]?.path || ''
   persistTabs()
 }
@@ -300,6 +302,8 @@ async function selectProject(path: string | null) {
       workbench.agentId,
     )
     tabs.value = []
+    externalChanges.value = {}
+    disposeMonacoModels()
     activeTabPath.value = ''
     persistTabs()
     projectPickerOpen.value = false
@@ -328,11 +332,11 @@ async function createProject() {
 
 watch(
   () => workbench.agentId,
-  () => { tabs.value = []; activeTabPath.value = ''; watchKey = ''; unsubscribeWorkspaceWatch?.(); void refresh() },
+  () => { tabs.value = []; externalChanges.value = {}; disposeMonacoModels(); activeTabPath.value = ''; watchKey = ''; unsubscribeWorkspaceWatch?.(); void refresh() },
 )
 watch([selectedPath, previewMode, () => workbench.agentId], () => void loadBinaryPreview())
 onMounted(() => void refresh())
-onBeforeUnmount(() => { unsubscribeWorkspaceWatch?.(); if (binaryPreviewObjectUrl) URL.revokeObjectURL(binaryPreviewObjectUrl) })
+onBeforeUnmount(() => { unsubscribeWorkspaceWatch?.(); disposeMonacoModels(); if (binaryPreviewObjectUrl) URL.revokeObjectURL(binaryPreviewObjectUrl) })
 </script>
 
 <template>
@@ -420,14 +424,12 @@ onBeforeUnmount(() => { unsubscribeWorkspaceWatch?.(); if (binaryPreviewObjectUr
         <div v-else-if="previewKind === 'csv'" class="csv-preview"><table><tbody><tr v-for="(row, index) in csvRows" :key="index"><th v-for="(cell, cellIndex) in (index === 0 ? row : [])" :key="cellIndex">{{ cell }}</th><td v-for="(cell, cellIndex) in (index ? row : [])" :key="cellIndex">{{ cell }}</td></tr></tbody></table></div>
         <div v-else-if="previewKind === 'json'" class="json-preview"><p v-if="formattedJson.error" class="inline-error">{{ formattedJson.error }}</p><pre>{{ formattedJson.text }}</pre></div>
       </div>
-      <textarea
+      <MonacoCodeEditor
         v-else-if="selectedPath"
-        v-model="editorText"
-        class="code-editor"
-        :aria-label="`Edit ${selectedPath}`"
-        spellcheck="false"
-        @keydown.meta.s.prevent="saveFile"
-        @keydown.ctrl.s.prevent="saveFile"
+        :path="selectedPath"
+        :content="editorText"
+        @change="editorText = $event"
+        @save="saveFile"
       />
       <div v-else class="editor-empty">Choose a file to view or edit it.</div>
       <p v-if="error" class="inline-error" role="alert">{{ error }}</p>
