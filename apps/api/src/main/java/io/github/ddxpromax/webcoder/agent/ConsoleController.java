@@ -575,13 +575,14 @@ public class ConsoleController {
                 );
             case "ToolCallStartEvent":
                 recordToolStart(event, state);
-                return List.of();
+                return toolEvent(event, state, events, "calling");
             case "ToolCallDeltaEvent":
                 recordToolDelta(event, state);
-                return List.of();
+                return toolEvent(event, state, events, "calling");
             case "ToolCallEndEvent":
+                List<String> toolEvents = toolEvent(event, state, events, "done");
                 recordToolEnd(event, state);
-                return List.of();
+                return toolEvents;
             case "ModelCallEndEvent":
                 var usage = ((ModelCallEndEvent) event).getUsage();
                 if (usage != null) {
@@ -591,6 +592,22 @@ public class ConsoleController {
                 return List.of();
             default:
                 return List.of();
+        }
+    }
+
+    private static List<String> toolEvent(
+        Object event, TurnState state, QwenEvents events, String status
+    ) {
+        try {
+            String id = String.valueOf(event.getClass().getMethod(
+                "getToolCallId").invoke(event));
+            ToolCallAccumulator call = state.toolCalls.get(id);
+            String name = call == null ? String.valueOf(event.getClass()
+                .getMethod("getToolCallName").invoke(event)) : call.name;
+            String input = call == null ? "" : call.input.toString();
+            return List.of(events.toolCall(id, name, input, status));
+        } catch (ReflectiveOperationException ignored) {
+            return List.of();
         }
     }
 

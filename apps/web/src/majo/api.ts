@@ -49,6 +49,8 @@ export interface ChatHistory {
   status: string
 }
 
+export interface LiveToolCall { id: string; name: string; input: string; status: 'calling' | 'done' | 'error' }
+
 export interface ApprovalRequest {
   request_id: string
   session_id: string
@@ -396,6 +398,7 @@ export async function streamChat(
   handlers: {
     onText: (text: string) => void
     onReasoning: (text: string) => void
+    onToolCall?: (tool: LiveToolCall) => void
     onDone: () => void
   },
   signal: AbortSignal,
@@ -454,6 +457,10 @@ export async function streamChat(
           ? handlers.onReasoning
           : handlers.onText
       receiver(String(payload.text ?? ''))
+    }
+    if (payload.object === 'tool_call' && typeof payload.id === 'string') {
+      const status = payload.status === 'done' || payload.status === 'error' ? payload.status : 'calling'
+      handlers.onToolCall?.({ id: payload.id, name: String(payload.name ?? 'Tool'), input: String(payload.input ?? ''), status })
     }
     if (payload.object === 'response' && payload.status === 'completed') {
       completed = true

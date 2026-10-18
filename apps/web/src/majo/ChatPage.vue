@@ -17,10 +17,12 @@ import {
   type ChatAttachment,
   type ApprovalRequest,
   type ChatMessage,
+  type LiveToolCall,
   type LoopMode,
 } from './api'
 import { codingComposer, workbench } from './state'
 import MarkdownMessage from './MarkdownMessage.vue'
+import ToolCallCard from './ToolCallCard.vue'
 import {
   MAX_QUEUE_SIZE,
   createQueueItem,
@@ -40,6 +42,7 @@ const messages = ref<ChatMessage[]>([])
 const prompt = ref('')
 const liveText = ref('')
 const liveReasoning = ref('')
+const liveToolCalls = ref<LiveToolCall[]>([])
 const error = ref('')
 const loading = ref(false)
 const sending = ref(false)
@@ -409,6 +412,7 @@ async function submit() {
   error.value = ''
   liveText.value = ''
   liveReasoning.value = ''
+  liveToolCalls.value = []
   const outgoingAttachments = [...attachments.value]
   const outgoingPrompt = text || 'Please analyze the attached file(s).'
   prompt.value = ''
@@ -448,6 +452,12 @@ async function submit() {
         },
         onReasoning: (delta) => {
           liveReasoning.value += delta
+          void scrollToBottom()
+        },
+        onToolCall: (tool) => {
+          const index = liveToolCalls.value.findIndex((item) => item.id === tool.id)
+          if (index >= 0) liveToolCalls.value.splice(index, 1, tool)
+          else liveToolCalls.value.push(tool)
           void scrollToBottom()
         },
         onDone: () => { activeLoop.value = '' },
@@ -631,6 +641,7 @@ onBeforeUnmount(() => {
         <div class="message-label">Thinking</div>
         <MarkdownMessage class="message-body" :content="liveReasoning" />
       </article>
+      <ToolCallCard v-for="tool in liveToolCalls" :key="tool.id" :tool="tool" />
       <article v-if="liveText" class="message assistant">
         <div class="message-label">Majo</div>
         <MarkdownMessage class="message-body" :content="liveText" />
