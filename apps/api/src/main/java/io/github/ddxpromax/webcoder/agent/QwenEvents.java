@@ -60,15 +60,23 @@ public class QwenEvents {
     }
 
     /** Generic Majo-compatible tool-call progress event for console clients. */
-    public String toolCall(String id, String name, String input, String status) {
+    public String toolCall(String id, String name, String input, String result,
+                           String status) {
         ObjectNode event = mapper.createObjectNode();
         event.put("object", "tool_call");
         event.put("id", id);
         event.put("name", name);
         event.put("input", input);
+        if (result != null && !result.isEmpty()) {
+            event.put("result", result);
+        }
         event.put("status", status);
         event.put("sequence_number", sequence.getAndIncrement());
         return event.toString();
+    }
+
+    public String toolCall(String id, String name, String input, String status) {
+        return toolCall(id, name, input, null, status);
     }
 
     public String responseCompleted(

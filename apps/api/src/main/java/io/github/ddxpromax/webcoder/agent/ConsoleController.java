@@ -3,6 +3,7 @@ package io.github.ddxpromax.webcoder.agent;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.agentscope.core.agent.RuntimeContext;
 import io.agentscope.core.event.ModelCallEndEvent;
+import io.agentscope.core.event.ToolResultEndEvent;
 import io.agentscope.core.message.Base64Source;
 import io.agentscope.core.message.ContentBlock;
 import io.agentscope.core.message.DataBlock;
@@ -223,6 +224,7 @@ public class ConsoleController {
         }).doFinally(signal -> {
             try {
                 approvals.cancelSession(sessionId);
+                completeOpenToolCalls(state);
                 saveConsoleMessages(chatId, userContent, state.completedMessages, state.completedToolCalls);
                 chats.setStatus(chatId, "idle");
                 tasks.setDone(chatId);
@@ -315,6 +317,7 @@ public class ConsoleController {
         return OverflowRecovery.recover(agent.streamEvents(message, context), agent, message, context)
             .concatMap(event -> Flux.fromIterable(encodeAgentEvent(event, turn, events)))
             .concatWith(Flux.defer(() -> {
+                completeOpenToolCalls(turn);
                 aggregate.messages.addAll(turn.completedMessages); aggregate.toolCalls.addAll(turn.completedToolCalls); aggregate.inputTokens += turn.inputTokens; aggregate.outputTokens += turn.outputTokens;
                 LoopGate.setCurrentSession(session.sessionId);
                 StopHandlerResult result;
@@ -580,9 +583,23 @@ public class ConsoleController {
                 recordToolDelta(event, state);
                 return toolEvent(event, state, events, "calling");
             case "ToolCallEndEvent":
-                List<String> toolEvents = toolEvent(event, state, events, "done");
                 recordToolEnd(event, state);
-                return toolEvents;
+                return List.of();
+            case "ToolResultStartEvent":
+                recordToolResultStart(event, state);
+                return toolEvent(event, state, events, "calling");
+            case "ToolResultTextDeltaEvent":
+                recordToolResultDelta(event, state);
+                return toolEvent(event, state, events, "calling");
+            case "ToolResultDataDeltaEvent":
+                recordToolResultData(event, state);
+                return toolEvent(event, state, events, "calling");
+            case "ToolResultEndEvent":
+                String resultStatus = toolResultStatus(event);
+                List<String> completedToolEvent = toolEvent(event, state, events,
+                    resultStatus);
+                recordToolResultEnd(event, state, resultStatus);
+                return completedToolEvent;
             case "ModelCallEndEvent":
                 var usage = ((ModelCallEndEvent) event).getUsage();
                 if (usage != null) {
@@ -605,7 +622,8 @@ public class ConsoleController {
             String name = call == null ? String.valueOf(event.getClass()
                 .getMethod("getToolCallName").invoke(event)) : call.name;
             String input = call == null ? "" : call.input.toString();
-            return List.of(events.toolCall(id, name, input, status));
+            String result = call == null ? null : call.result.toString();
+            return List.of(events.toolCall(id, name, input, result, status));
         } catch (ReflectiveOperationException ignored) {
             return List.of();
         }
@@ -644,18 +662,99 @@ public class ConsoleController {
         try {
             String id = String.valueOf(event.getClass().getMethod(
                 "getToolCallId").invoke(event));
-            ToolCallAccumulator call = state.toolCalls.remove(id);
+            ToolCallAccumulator call = state.toolCalls.get(id);
             String name = call == null ? String.valueOf(event.getClass()
                 .getMethod("getToolCallName").invoke(event)) : call.name;
             String input = call == null ? "" : call.input.toString();
             state.lastToolCall = new LoopContext.ToolCallRecord(name,
                 DoomLoopGate.hashArgs(input));
-            state.completedToolCalls.add(Map.of(
-                "id", id, "name", name, "input", input, "status", "done"
-            ));
+            if (call != null) call.callEnded = true;
         } catch (ReflectiveOperationException ignored) {
             // Ignore unknown event shapes; hasToolCalls stays true.
         }
+    }
+
+    private static void recordToolResultStart(Object event, TurnState state) {
+        try {
+            String id = String.valueOf(event.getClass().getMethod(
+                "getToolCallId").invoke(event));
+            if (!state.toolCalls.containsKey(id)) {
+                String name = String.valueOf(event.getClass().getMethod(
+                    "getToolCallName").invoke(event));
+                state.toolCalls.put(id, new ToolCallAccumulator(name));
+            }
+        } catch (ReflectiveOperationException ignored) {
+            // Ignore unknown event shapes; normal text streaming can continue.
+        }
+    }
+
+    private static void recordToolResultDelta(Object event, TurnState state) {
+        try {
+            String id = String.valueOf(event.getClass().getMethod(
+                "getToolCallId").invoke(event));
+            ToolCallAccumulator call = state.toolCalls.get(id);
+            if (call != null) call.result.append(eventDelta(event));
+        } catch (ReflectiveOperationException ignored) {
+            // A result without a start event is still represented by its end event.
+        }
+    }
+
+    private static void recordToolResultData(Object event, TurnState state) {
+        try {
+            String id = String.valueOf(event.getClass().getMethod(
+                "getToolCallId").invoke(event));
+            ToolCallAccumulator call = state.toolCalls.get(id);
+            Object data = event.getClass().getMethod("getData").invoke(event);
+            if (call != null && data != null) call.result.append(data);
+        } catch (ReflectiveOperationException ignored) {
+            // Binary results remain available to the agent even if no text preview exists.
+        }
+    }
+
+    private static String toolResultStatus(Object event) {
+        if (event instanceof ToolResultEndEvent end
+            && "success".equalsIgnoreCase(end.getState().getValue())) {
+            return "done";
+        }
+        return "error";
+    }
+
+    private static void recordToolResultEnd(
+        Object event, TurnState state, String status
+    ) {
+        try {
+            String id = String.valueOf(event.getClass().getMethod(
+                "getToolCallId").invoke(event));
+            ToolCallAccumulator call = state.toolCalls.remove(id);
+            String name = call == null ? String.valueOf(event.getClass()
+                .getMethod("getToolCallName").invoke(event)) : call.name;
+            String input = call == null ? "" : call.input.toString();
+            String result = call == null ? "" : call.result.toString();
+            state.completedToolCalls.add(completedToolCall(
+                id, name, input, result, status
+            ));
+        } catch (ReflectiveOperationException ignored) {
+            // The turn still retains ordinary assistant output.
+        }
+    }
+
+    private static Map<String, Object> completedToolCall(
+        String id, String name, String input, String result, String status
+    ) {
+        Map<String, Object> call = new LinkedHashMap<>();
+        call.put("id", id); call.put("name", name); call.put("input", input);
+        call.put("result", result); call.put("status", status);
+        return call;
+    }
+
+    private static void completeOpenToolCalls(TurnState state) {
+        for (Map.Entry<String, ToolCallAccumulator> entry : state.toolCalls.entrySet()) {
+            ToolCallAccumulator call = entry.getValue();
+            state.completedToolCalls.add(completedToolCall(entry.getKey(), call.name,
+                call.input.toString(), call.result.toString(),
+                call.callEnded ? "done" : "error"));
+        }
+        state.toolCalls.clear();
     }
 
     private static Map<String, Object> completedMessage(
@@ -887,6 +986,8 @@ public class ConsoleController {
     private static final class ToolCallAccumulator {
         final String name;
         final StringBuilder input = new StringBuilder();
+        final StringBuilder result = new StringBuilder();
+        boolean callEnded;
 
         ToolCallAccumulator(String name) {
             this.name = name;

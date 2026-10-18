@@ -26,4 +26,16 @@ class QwenEventsTests {
         assertThat(done.path("sequence_number").asLong())
             .isGreaterThan(calling.path("sequence_number").asLong());
     }
+
+    @Test
+    void emitsToolResultOnlyWhenTheToolProvidedOne() throws Exception {
+        QwenEvents events = new QwenEvents(mapper);
+        var completed = mapper.readTree(events.toolCall(
+            "call-1", "read_file", "{\"path\":\"README.md\"}",
+            "# Readme", "done"
+        ));
+
+        assertThat(completed.path("result").asText()).isEqualTo("# Readme");
+        assertThat(completed.path("status").asText()).isEqualTo("done");
+    }
 }
