@@ -35,6 +35,7 @@ const nav = [
   { label: 'Skills', to: '/skills', icon: '✦' },
   { label: 'Skill Pool', to: '/skill-pool', icon: '◫' },
   { label: 'MCP', to: '/mcp', icon: '⌘' },
+  { label: 'ACP', to: '/acp', icon: '◈' },
   { label: 'Scheduled jobs', to: '/cron', icon: '◷' },
   { label: 'Heartbeat', to: '/heartbeat', icon: '♥' },
   { label: 'Inbox', to: '/inbox', icon: '✉' },
