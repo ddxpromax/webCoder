@@ -19,7 +19,7 @@ import {
   type ChatMessage,
   type LoopMode,
 } from './api'
-import { workbench } from './state'
+import { codingComposer, workbench } from './state'
 import {
   MAX_QUEUE_SIZE,
   createQueueItem,
@@ -496,6 +496,11 @@ watch(sending, (active) => {
 })
 
 watch([() => workbench.agentId, chatId], () => void loadLoopModes(), { immediate: true })
+watch(() => codingComposer.revision, () => {
+  if (!props.workspace || !codingComposer.text) return
+  prompt.value = prompt.value ? `${prompt.value}\n${codingComposer.text}` : codingComposer.text
+  codingComposer.text = ''
+})
 watch(() => workbench.agentId, () => void loadModels(), { immediate: true })
 watch(queueKey, () => loadQueue(), { immediate: true })
 watch([() => queuedTurns.value.length, sending, chatId], ([count, active, id]) => {

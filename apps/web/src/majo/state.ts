@@ -11,6 +11,14 @@ export const workbench = reactive({
   loading: false,
 })
 
+/** Shared Coding-only composer bridge, matching Majo's editor-to-chat action. */
+export const codingComposer = reactive({ text: '', revision: 0 })
+
+export function appendCodingComposer(text: string) {
+  codingComposer.text = codingComposer.text ? `${codingComposer.text}\n${text}` : text
+  codingComposer.revision += 1
+}
+
 export function selectAgent(agentId: string) {
   workbench.agentId = agentId
   if (typeof window !== 'undefined') {

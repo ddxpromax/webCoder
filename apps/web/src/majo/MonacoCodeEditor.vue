@@ -5,6 +5,7 @@ import JsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker'
 import CssWorker from 'monaco-editor/esm/vs/language/css/css.worker?worker'
 import HtmlWorker from 'monaco-editor/esm/vs/language/html/html.worker?worker'
 import TsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker'
+import { formatEditorSelectionForChat, languageForPath } from './editorContext'
 
 const models = new Map<string, monaco.editor.ITextModel>()
 
@@ -22,18 +23,6 @@ monacoEnvironment.MonacoEnvironment ??= {
   },
 }
 
-function languageFor(path: string) {
-  const extension = path.split('.').pop()?.toLowerCase()
-  const languages: Record<string, string> = {
-    java: 'java', js: 'javascript', jsx: 'javascript', ts: 'typescript', tsx: 'typescript',
-    vue: 'html', html: 'html', htm: 'html', css: 'css', scss: 'scss', less: 'less',
-    json: 'json', jsonc: 'json', md: 'markdown', mdx: 'markdown', yaml: 'yaml', yml: 'yaml',
-    xml: 'xml', sql: 'sql', py: 'python', go: 'go', rs: 'rust', c: 'c', h: 'c', cpp: 'cpp',
-    hpp: 'cpp', cs: 'csharp', sh: 'shell', bash: 'shell', zsh: 'shell', dockerfile: 'dockerfile',
-  }
-  return languages[extension || ''] || 'plaintext'
-}
-
 function modelUri(path: string) {
   return monaco.Uri.parse(`inmemory://webcoder/${path.split('/').map(encodeURIComponent).join('/')}`)
 }
@@ -41,7 +30,7 @@ function modelUri(path: string) {
 function modelFor(path: string, content: string) {
   let model = models.get(path)
   if (!model || model.isDisposed()) {
-    model = monaco.editor.createModel(content, languageFor(path), modelUri(path))
+    model = monaco.editor.createModel(content, languageForPath(path), modelUri(path))
     models.set(path, model)
   }
   return model
@@ -65,7 +54,7 @@ export function disposeMonacoModels() {
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
 const props = defineProps<{ path: string; content: string }>()
-const emit = defineEmits<{ change: [content: string]; save: [] }>()
+const emit = defineEmits<{ change: [content: string]; save: []; copyContext: [context: string] }>()
 const host = ref<HTMLElement | null>(null)
 let editor: monaco.editor.IStandaloneCodeEditor | undefined
 let contentSubscription: monaco.IDisposable | undefined
@@ -74,7 +63,7 @@ let applyingParentValue = false
 function selectModel(path: string, content: string) {
   const model = modelFor(path, content)
   editor?.setModel(model)
-  monaco.editor.setModelLanguage(model, languageFor(path))
+  monaco.editor.setModelLanguage(model, languageForPath(path))
   if (model.getValue() !== content) {
     applyingParentValue = true
     model.setValue(content)
@@ -88,6 +77,19 @@ function disposeCurrentListener() {
     if (!applyingParentValue) emit('change', editor?.getValue() || '')
   })
 }
+
+function copySelectionToChat() {
+  const model = editor?.getModel()
+  const selection = editor?.getSelection()
+  if (!model || !selection) return
+  if (selection.isEmpty()) {
+    emit('copyContext', props.path)
+    return
+  }
+  emit('copyContext', formatEditorSelectionForChat(props.path, model.getValue(), selection))
+}
+
+defineExpose({ copySelectionToChat })
 
 onMounted(() => {
   if (!host.value) return

@@ -13,7 +13,7 @@ import {
   type CodeFile,
   type CodingProject,
 } from './api'
-import { workbench } from './state'
+import { appendCodingComposer, workbench } from './state'
 import { subscribeWorkspaceWatch, type WorkspaceFileChange } from './workspaceWatch'
 
 const project = ref<CodingProject | null>(null)
@@ -44,6 +44,7 @@ const expandedDirectories = ref(new Set<string>())
 const previewMode = ref(false)
 const binaryPreviewUrl = ref('')
 const binaryPreviewLoading = ref(false)
+const monacoEditor = ref<{ copySelectionToChat: () => void } | null>(null)
 let binaryPreviewObjectUrl = ''
 let refreshVersion = 0
 let unsubscribeWorkspaceWatch: (() => void) | undefined
@@ -282,6 +283,10 @@ function keepLocalChange(path: string) {
   const next = { ...externalChanges.value }; delete next[path]; externalChanges.value = next
 }
 
+function appendEditorContext(context: string) {
+  appendCodingComposer(context)
+}
+
 function closeTab(path: string) {
   const index = tabs.value.findIndex((tab) => tab.path === path)
   if (index < 0) return
@@ -410,6 +415,7 @@ onBeforeUnmount(() => { unsubscribeWorkspaceWatch?.(); disposeMonacoModels(); if
           {{ saving ? 'Saving…' : 'Save' }}
         </button>
         <button v-if="previewable" @click="previewMode = !previewMode">{{ previewMode ? 'Edit' : 'Preview' }}</button>
+        <button v-if="selectedPath && !previewMode" title="Copy selection to Chat" @click="monacoEditor?.copySelectionToChat()">Copy to Chat</button>
       </div>
       <div v-if="selectedPath && activeExternalChange" class="external-change" role="status">
         <span>{{ activeExternalChange.change === 'deleted' ? 'This open file was deleted on disk.' : 'This file changed on disk.' }}</span>
@@ -426,10 +432,12 @@ onBeforeUnmount(() => { unsubscribeWorkspaceWatch?.(); disposeMonacoModels(); if
       </div>
       <MonacoCodeEditor
         v-else-if="selectedPath"
+        ref="monacoEditor"
         :path="selectedPath"
         :content="editorText"
         @change="editorText = $event"
         @save="saveFile"
+        @copy-context="appendEditorContext"
       />
       <div v-else class="editor-empty">Choose a file to view or edit it.</div>
       <p v-if="error" class="inline-error" role="alert">{{ error }}</p>
