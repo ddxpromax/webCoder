@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import ChatPage from './ChatPage.vue'
 import GitPanel from './GitPanel.vue'
 import MonacoCodeEditor, { disposeMonacoModel, disposeMonacoModels } from './MonacoCodeEditor.vue'
+import MonacoDiffEditor from './MonacoDiffEditor.vue'
 import {
   apiRequest,
   agentHeaders,
@@ -279,8 +280,18 @@ function acceptExternalChange(path: string) {
   const next = { ...externalChanges.value }; delete next[path]; externalChanges.value = next
 }
 
-function keepLocalChange(path: string) {
-  const next = { ...externalChanges.value }; delete next[path]; externalChanges.value = next
+async function undoExternalChange(path: string) {
+  const tab = tabs.value.find((candidate) => candidate.path === path)
+  if (!tab || saving.value) return
+  saving.value = true
+  error.value = ''
+  try {
+    await writeCodeFile(path, tab.content, workbench.agentId)
+    tab.original = tab.content
+    const next = { ...externalChanges.value }; delete next[path]; externalChanges.value = next
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : 'Could not undo the external change.'
+  } finally { saving.value = false }
 }
 
 function appendEditorContext(context: string) {
@@ -418,9 +429,9 @@ onBeforeUnmount(() => { unsubscribeWorkspaceWatch?.(); disposeMonacoModels(); if
         <button v-if="selectedPath && !previewMode" title="Copy selection to Chat" @click="monacoEditor?.copySelectionToChat()">Copy to Chat</button>
       </div>
       <div v-if="selectedPath && activeExternalChange" class="external-change" role="status">
-        <span>{{ activeExternalChange.change === 'deleted' ? 'This open file was deleted on disk.' : 'This file changed on disk.' }}</span>
-        <button @click="acceptExternalChange(selectedPath)">{{ activeExternalChange.change === 'deleted' ? 'Close tab' : 'Load change' }}</button>
-        <button @click="keepLocalChange(selectedPath)">Keep current</button>
+        <span>{{ activeExternalChange.change === 'deleted' ? 'This open file was deleted on disk.' : 'Agent changed this file.' }}</span>
+        <button @click="acceptExternalChange(selectedPath)">{{ activeExternalChange.change === 'deleted' ? 'Close tab' : 'Keep all' }}</button>
+        <button v-if="activeExternalChange.change !== 'deleted'" :disabled="saving" @click="undoExternalChange(selectedPath)">Undo all</button>
       </div>
       <div v-if="selectedPath && previewMode" class="file-preview">
         <p v-if="binaryPreviewLoading" class="muted">Loading preview…</p>
@@ -430,6 +441,12 @@ onBeforeUnmount(() => { unsubscribeWorkspaceWatch?.(); disposeMonacoModels(); if
         <div v-else-if="previewKind === 'csv'" class="csv-preview"><table><tbody><tr v-for="(row, index) in csvRows" :key="index"><th v-for="(cell, cellIndex) in (index === 0 ? row : [])" :key="cellIndex">{{ cell }}</th><td v-for="(cell, cellIndex) in (index ? row : [])" :key="cellIndex">{{ cell }}</td></tr></tbody></table></div>
         <div v-else-if="previewKind === 'json'" class="json-preview"><p v-if="formattedJson.error" class="inline-error">{{ formattedJson.error }}</p><pre>{{ formattedJson.text }}</pre></div>
       </div>
+      <MonacoDiffEditor
+        v-else-if="selectedPath && activeExternalChange && activeExternalChange.content !== null"
+        :path="selectedPath"
+        :original="editorText"
+        :modified="activeExternalChange.content"
+      />
       <MonacoCodeEditor
         v-else-if="selectedPath"
         ref="monacoEditor"
