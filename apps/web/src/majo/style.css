@@ -355,6 +355,9 @@ a {
 .markdown-message a { color: #8bc3ff; }
 .markdown-message .mermaid-diagram { overflow: auto; margin: 10px 0; border: 1px solid #3c3c3c; border-radius: 7px; padding: 12px; background: #fafafa; }
 .markdown-message .mermaid-diagram svg { display: block; max-width: 100%; height: auto; margin: auto; }
+.modal-backdrop { position: fixed; inset: 0; z-index: 30; display: grid; place-items: center; padding: 20px; background: rgb(0 0 0 / 60%); }
+.long-paste-dialog { width: min(480px, 100%); border: 1px solid #4a4a4a; border-radius: 10px; padding: 20px; background: #242424; color: #eee; }
+.long-paste-dialog h2 { margin-top: 0; }.long-paste-dialog div { display: flex; justify-content: flex-end; gap: 8px; }.long-paste-dialog button { border: 1px solid #555; border-radius: 6px; padding: 7px 10px; background: #333; color: #eee; }.long-paste-dialog .primary { background: var(--majo-accent); color: #22150f; }
 .message.user .message-body {
   background: #2b2b2b;
   border-radius: 12px;

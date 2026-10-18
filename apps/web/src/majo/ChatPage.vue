@@ -53,6 +53,7 @@ const transcribing = ref(false)
 const attachments = ref<ChatAttachment[]>([])
 const uploading = ref(false)
 const attachmentInput = ref<HTMLInputElement | null>(null)
+const longPaste = ref<{ text: string; draft: string; start: number; end: number } | null>(null)
 const queuedTurns = ref<QueueItem[]>([])
 const drainingQueue = ref(false)
 const lastTurnSucceeded = ref(false)
@@ -247,6 +248,37 @@ async function addAttachments(event: Event) {
   } finally {
     uploading.value = false
   }
+}
+
+function onComposerPaste(event: ClipboardEvent) {
+  const text = event.clipboardData?.getData('text/plain') || ''
+  const hasFiles = Boolean(event.clipboardData?.files.length)
+    || [...(event.clipboardData?.items || [])].some((item) => item.kind === 'file')
+  if (!text || text.length <= 10_000 || hasFiles || uploading.value) return
+  event.preventDefault()
+  const target = event.target as HTMLTextAreaElement
+  longPaste.value = { text, draft: target.value, start: target.selectionStart, end: target.selectionEnd }
+}
+
+async function chooseLongPaste(choice: 'text' | 'file' | 'cancel') {
+  const request = longPaste.value
+  longPaste.value = null
+  if (!request || choice === 'cancel') return
+  if (choice === 'text') {
+    const start = prompt.value === request.draft ? request.start : prompt.value.length
+    const end = prompt.value === request.draft ? request.end : prompt.value.length
+    prompt.value = `${prompt.value.slice(0, start)}${request.text}${prompt.value.slice(end)}`
+    return
+  }
+  uploading.value = true
+  error.value = ''
+  try {
+    const file = new File([request.text], `prompt-${Date.now()}.txt`, { type: 'text/plain;charset=utf-8' })
+    const uploaded = await uploadChatFile(file, workbench.agentId)
+    attachments.value.push({ name: uploaded.file_name || file.name, url: uploaded.stored_name || uploaded.url, type: file.type, size: uploaded.size || file.size })
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : 'Could not attach the pasted text.'
+  } finally { uploading.value = false }
 }
 
 function removeAttachment(index: number) {
@@ -630,6 +662,7 @@ onBeforeUnmount(() => {
           rows="3"
           :disabled="uploading"
           @keydown="onComposerKeydown"
+          @paste="onComposerPaste"
         />
         <div class="composer-footer">
           <label class="loop-mode"><span>Mode</span><select v-model="selectedLoop" :disabled="sending"><option value="">Standard</option><option v-for="mode in loopModes.filter((item) => item.id !== 'default')" :key="mode.id" :value="mode.id">{{ mode.name }}</option></select></label>
@@ -655,6 +688,13 @@ onBeforeUnmount(() => {
         </div>
       </section>
       <p class="composer-hint">AI can make mistakes. Review changes before using them.</p>
+    </div>
+    <div v-if="longPaste" class="modal-backdrop" role="dialog" aria-modal="true" aria-label="Long pasted text">
+      <section class="long-paste-dialog">
+        <h2>Large pasted text</h2>
+        <p>This paste contains {{ longPaste.text.length.toLocaleString() }} characters. Send it as text or attach it as a file?</p>
+        <div><button @click="chooseLongPaste('cancel')">Cancel</button><button @click="chooseLongPaste('file')">Attach as file</button><button class="primary" @click="chooseLongPaste('text')">Paste as text</button></div>
+      </section>
     </div>
   </section>
 </template>
