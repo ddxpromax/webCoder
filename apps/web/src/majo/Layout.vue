@@ -13,6 +13,8 @@ const search = ref('')
 const searching = ref(false)
 const contentMatches = ref<Set<string> | null>(null)
 const codingMode = ref(false)
+const agentStatus = ref<'ready' | 'running' | 'disabled' | 'pending'>('pending')
+let agentStatusTimer: ReturnType<typeof setInterval> | undefined
 let searchVersion = 0
 const archivedChats = ref<typeof workbench.chats>([])
 const visibleChats = computed(() => {
@@ -64,6 +66,16 @@ async function refreshCodingMode() {
   catch { codingMode.value = false }
 }
 
+async function refreshAgentStatus() {
+  try {
+    const status = await apiRequest<{ status?: string }>(
+      `/agents/${encodeURIComponent(workbench.agentId)}/agent-status`, {}, workbench.agentId,
+    )
+    agentStatus.value = status.status === 'running' ? 'running'
+      : status.status === 'disabled' ? 'disabled' : 'ready'
+  } catch { agentStatus.value = 'pending' }
+}
+
 async function searchContents() {
   const version = ++searchVersion
   const query = search.value.trim().toLowerCase()
@@ -110,18 +122,21 @@ async function removeChat(id: string) {
 
 watch(
   () => workbench.agentId,
-  () => { void refresh(); void refreshCodingMode() },
+  () => { void refresh(); void refreshCodingMode(); void refreshAgentStatus() },
 )
 watch(search, () => void searchContents())
 onMounted(() => {
   void refresh()
   void refreshCodingMode()
+  void refreshAgentStatus()
+  agentStatusTimer = setInterval(() => void refreshAgentStatus(), 3000)
   window.addEventListener('majo-chats-changed', refresh)
   window.addEventListener('majo-coding-mode-changed', refreshCodingMode)
 })
 onBeforeUnmount(() => {
   window.removeEventListener('majo-chats-changed', refresh)
   window.removeEventListener('majo-coding-mode-changed', refreshCodingMode)
+  if (agentStatusTimer) clearInterval(agentStatusTimer)
 })
 </script>
 
@@ -140,7 +155,7 @@ onBeforeUnmount(() => {
             {{ agent.name }}
           </option>
         </select>
-        <span class="online-dot" title="Local workspace" />
+        <span class="online-dot" :class="agentStatus" :title="`Agent ${agentStatus}`" />
       </div>
     </header>
 

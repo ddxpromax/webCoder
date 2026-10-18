@@ -83,6 +83,7 @@ a {
   background: #69c986;
   border-radius: 50%;
 }
+.online-dot.running { background: #f0b85f; box-shadow: 0 0 0 3px rgba(240, 184, 95, .15); }.online-dot.disabled { background: #777; }.online-dot.pending { background: #a9a9a9; }.online-dot.ready { background: #69c986; }
 .workbench-body {
   flex: 1;
   min-height: 0;
