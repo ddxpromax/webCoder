@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import ChatPage from './ChatPage.vue'
 import GitPanel from './GitPanel.vue'
 import {
   apiRequest,
+  agentHeaders,
   getCodingProject,
   listCodeFiles,
   readCodeFile,
@@ -36,7 +37,36 @@ const codingModeEnabled = ref(false)
 const availableProjects = ref<Array<{ path: string; name: string }>>([])
 const tabStorageKey = computed(() => `majo:coding-tabs:${workbench.agentId}`)
 const expandedDirectories = ref(new Set<string>())
+const previewMode = ref(false)
+const binaryPreviewUrl = ref('')
+const binaryPreviewLoading = ref(false)
+let binaryPreviewObjectUrl = ''
 let refreshVersion = 0
+
+const previewKind = computed<'image' | 'pdf' | 'markdown' | 'csv' | 'json' | 'none'>(() => {
+  const extension = selectedPath.value.split('.').pop()?.toLowerCase()
+  if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico'].includes(extension || '')) return 'image'
+  if (extension === 'pdf') return 'pdf'
+  if (['md', 'mdx'].includes(extension || '')) return 'markdown'
+  if (extension === 'csv') return 'csv'
+  if (['json', 'jsonc'].includes(extension || '')) return 'json'
+  return 'none'
+})
+const previewable = computed(() => previewKind.value !== 'none')
+const csvRows = computed(() => editorText.value.trimEnd().split(/\r?\n/).slice(0, 501).map((line) => {
+  const cells: string[] = []; let cell = ''; let quoted = false
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index]
+    if (char === '"') { if (quoted && line[index + 1] === '"') { cell += '"'; index += 1 } else quoted = !quoted }
+    else if (char === ',' && !quoted) { cells.push(cell); cell = '' } else cell += char
+  }
+  cells.push(cell); return cells
+}))
+const formattedJson = computed(() => {
+  if (previewKind.value !== 'json') return { text: '', error: '' }
+  try { return { text: JSON.stringify(JSON.parse(editorText.value), null, 2), error: '' } }
+  catch (cause) { return { text: editorText.value, error: cause instanceof Error ? cause.message : 'Invalid JSON.' } }
+})
 
 const fileTreeRows = computed<FileTreeRow[]>(() => {
   const roots: FileTreeNode[] = []
@@ -137,13 +167,35 @@ async function openFile(file: CodeFile) {
   if (existing) { activeTabPath.value = existing.path; return }
   error.value = ''
   try {
-    const result = await readCodeFile(file.path, workbench.agentId)
+    const extension = file.path.split('.').pop()?.toLowerCase()
+    const binary = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico', 'pdf'].includes(extension || '')
+    const result = binary ? { content: '' } : await readCodeFile(file.path, workbench.agentId)
     tabs.value.push({ path: file.path, content: result.content, original: result.content })
     activeTabPath.value = file.path
+    previewMode.value = binary
     persistTabs()
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : 'Could not open file.'
   }
+}
+
+function binaryPreviewPath(path: string) {
+  return `/api/workspace/binary-files/${path.split('/').map(encodeURIComponent).join('/')}`
+}
+
+async function loadBinaryPreview() {
+  if (!previewMode.value || !['image', 'pdf'].includes(previewKind.value) || !selectedPath.value) return
+  binaryPreviewLoading.value = true
+  if (binaryPreviewObjectUrl) URL.revokeObjectURL(binaryPreviewObjectUrl)
+  binaryPreviewObjectUrl = ''; binaryPreviewUrl.value = ''
+  try {
+    const response = await fetch(binaryPreviewPath(selectedPath.value), { headers: agentHeaders(workbench.agentId) })
+    if (!response.ok) throw new Error(`Preview failed (HTTP ${response.status}).`)
+    binaryPreviewObjectUrl = URL.createObjectURL(await response.blob())
+    binaryPreviewUrl.value = binaryPreviewObjectUrl
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : 'Could not load the file preview.'
+  } finally { binaryPreviewLoading.value = false }
 }
 
 function selectTreeRow(row: FileTreeRow) {
@@ -220,7 +272,9 @@ watch(
   () => workbench.agentId,
   () => { tabs.value = []; activeTabPath.value = ''; void refresh() },
 )
+watch([selectedPath, previewMode, () => workbench.agentId], () => void loadBinaryPreview())
 onMounted(() => void refresh())
+onBeforeUnmount(() => { if (binaryPreviewObjectUrl) URL.revokeObjectURL(binaryPreviewObjectUrl) })
 </script>
 
 <template>
@@ -293,9 +347,18 @@ onMounted(() => void refresh())
         >
           {{ saving ? 'Saving…' : 'Save' }}
         </button>
+        <button v-if="previewable" @click="previewMode = !previewMode">{{ previewMode ? 'Edit' : 'Preview' }}</button>
+      </div>
+      <div v-if="selectedPath && previewMode" class="file-preview">
+        <p v-if="binaryPreviewLoading" class="muted">Loading preview…</p>
+        <img v-else-if="previewKind === 'image' && binaryPreviewUrl" :src="binaryPreviewUrl" :alt="selectedPath" />
+        <embed v-else-if="previewKind === 'pdf' && binaryPreviewUrl" :src="binaryPreviewUrl" type="application/pdf" :title="selectedPath" />
+        <pre v-else-if="previewKind === 'markdown'" class="markdown-preview">{{ editorText }}</pre>
+        <div v-else-if="previewKind === 'csv'" class="csv-preview"><table><tbody><tr v-for="(row, index) in csvRows" :key="index"><th v-for="(cell, cellIndex) in (index === 0 ? row : [])" :key="cellIndex">{{ cell }}</th><td v-for="(cell, cellIndex) in (index ? row : [])" :key="cellIndex">{{ cell }}</td></tr></tbody></table></div>
+        <div v-else-if="previewKind === 'json'" class="json-preview"><p v-if="formattedJson.error" class="inline-error">{{ formattedJson.error }}</p><pre>{{ formattedJson.text }}</pre></div>
       </div>
       <textarea
-        v-if="selectedPath"
+        v-else-if="selectedPath"
         v-model="editorText"
         class="code-editor"
         :aria-label="`Edit ${selectedPath}`"

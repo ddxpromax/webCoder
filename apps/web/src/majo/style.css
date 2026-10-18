@@ -570,6 +570,14 @@ a {
     monospace;
   tab-size: 2;
 }
+.file-preview { flex: 1; min-height: 0; overflow: auto; padding: 18px; color: #d6d6d6; }
+.file-preview img { display: block; max-width: 100%; max-height: 100%; margin: auto; object-fit: contain; }
+.file-preview embed { width: 100%; height: 100%; min-height: 480px; border: 0; }
+.markdown-preview, .json-preview pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 13px/1.65 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.csv-preview { overflow: auto; }
+.csv-preview table { border-collapse: collapse; font-size: 12px; }
+.csv-preview th, .csv-preview td { border: 1px solid #424242; padding: 6px 8px; text-align: left; white-space: nowrap; }
+.csv-preview th { background: #292929; }
 .editor-empty {
   margin: auto;
   color: #777;
