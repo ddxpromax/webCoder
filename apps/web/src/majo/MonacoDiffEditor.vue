@@ -2,8 +2,10 @@
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import * as monaco from 'monaco-editor'
 import { languageForPath } from './editorContext'
+import type { DiffHunk } from './diffHunks'
 
 const props = defineProps<{ path: string; original: string; modified: string }>()
+const emit = defineEmits<{ hunks: [hunks: DiffHunk[]] }>()
 const host = ref<HTMLElement | null>(null)
 let editor: monaco.editor.IStandaloneDiffEditor | undefined
 let originalModel: monaco.editor.ITextModel | undefined
@@ -31,6 +33,14 @@ onMounted(() => {
     readOnly: true, originalEditable: false, minimap: { enabled: false },
     fontSize: 13, lineNumbers: 'on', scrollBeyondLastLine: false,
     wordWrap: 'off', renderOverviewRuler: false,
+  })
+  editor.onDidUpdateDiff(() => {
+    emit('hunks', (editor?.getLineChanges() || []).map((change) => ({
+      originalStartLineNumber: change.originalStartLineNumber,
+      originalEndLineNumber: change.originalEndLineNumber,
+      modifiedStartLineNumber: change.modifiedStartLineNumber,
+      modifiedEndLineNumber: change.modifiedEndLineNumber,
+    })))
   })
   setModels()
 })

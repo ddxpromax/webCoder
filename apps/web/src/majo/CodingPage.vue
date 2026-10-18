@@ -4,6 +4,7 @@ import ChatPage from './ChatPage.vue'
 import GitPanel from './GitPanel.vue'
 import MonacoCodeEditor, { disposeMonacoModel, disposeMonacoModels } from './MonacoCodeEditor.vue'
 import MonacoDiffEditor from './MonacoDiffEditor.vue'
+import { keepDiffHunk, undoDiffHunk, type DiffHunk } from './diffHunks'
 import {
   apiRequest,
   agentHeaders,
@@ -46,6 +47,7 @@ const previewMode = ref(false)
 const binaryPreviewUrl = ref('')
 const binaryPreviewLoading = ref(false)
 const monacoEditor = ref<{ copySelectionToChat: () => void } | null>(null)
+const activeDiffHunks = ref<DiffHunk[]>([])
 let binaryPreviewObjectUrl = ''
 let refreshVersion = 0
 let unsubscribeWorkspaceWatch: (() => void) | undefined
@@ -294,6 +296,29 @@ async function undoExternalChange(path: string) {
   } finally { saving.value = false }
 }
 
+function keepExternalHunk(hunk: DiffHunk) {
+  const change = activeExternalChange.value
+  const tab = activeTab.value
+  if (change?.content === null || change?.content === undefined || !tab) return
+  tab.content = keepDiffHunk(tab.content, change.content, hunk)
+  if (tab.content === change.content) acceptExternalChange(tab.path)
+}
+
+async function undoExternalHunk(hunk: DiffHunk) {
+  const change = activeExternalChange.value
+  const tab = activeTab.value
+  if (change?.content === null || change?.content === undefined || !tab || saving.value) return
+  const reverted = undoDiffHunk(tab.content, change.content, hunk)
+  saving.value = true
+  try {
+    await writeCodeFile(tab.path, reverted, workbench.agentId)
+    if (reverted === tab.content) {
+      const next = { ...externalChanges.value }; delete next[tab.path]; externalChanges.value = next
+    } else externalChanges.value = { ...externalChanges.value, [tab.path]: { ...change, content: reverted } }
+  } catch (cause) { error.value = cause instanceof Error ? cause.message : 'Could not undo this change.' }
+  finally { saving.value = false }
+}
+
 function appendEditorContext(context: string) {
   appendCodingComposer(context)
 }
@@ -348,8 +373,11 @@ async function createProject() {
 
 watch(
   () => workbench.agentId,
-  () => { tabs.value = []; externalChanges.value = {}; disposeMonacoModels(); activeTabPath.value = ''; watchKey = ''; unsubscribeWorkspaceWatch?.(); void refresh() },
+  () => { tabs.value = []; externalChanges.value = {}; activeDiffHunks.value = []; disposeMonacoModels(); activeTabPath.value = ''; watchKey = ''; unsubscribeWorkspaceWatch?.(); void refresh() },
 )
+watch(activeExternalChange, (change) => {
+  if (!change || change.content === null) activeDiffHunks.value = []
+})
 watch([selectedPath, previewMode, () => workbench.agentId], () => void loadBinaryPreview())
 onMounted(() => void refresh())
 onBeforeUnmount(() => { unsubscribeWorkspaceWatch?.(); disposeMonacoModels(); if (binaryPreviewObjectUrl) URL.revokeObjectURL(binaryPreviewObjectUrl) })
@@ -433,6 +461,9 @@ onBeforeUnmount(() => { unsubscribeWorkspaceWatch?.(); disposeMonacoModels(); if
         <button @click="acceptExternalChange(selectedPath)">{{ activeExternalChange.change === 'deleted' ? 'Close tab' : 'Keep all' }}</button>
         <button v-if="activeExternalChange.change !== 'deleted'" :disabled="saving" @click="undoExternalChange(selectedPath)">Undo all</button>
       </div>
+      <div v-if="selectedPath && activeExternalChange?.content !== null && activeDiffHunks.length" class="diff-hunk-actions">
+        <span>Review changes</span><span v-for="(hunk, index) in activeDiffHunks" :key="index"><button @click="keepExternalHunk(hunk)">Keep {{ index + 1 }}</button><button :disabled="saving" @click="undoExternalHunk(hunk)">Undo {{ index + 1 }}</button></span>
+      </div>
       <div v-if="selectedPath && previewMode" class="file-preview">
         <p v-if="binaryPreviewLoading" class="muted">Loading preview…</p>
         <img v-else-if="previewKind === 'image' && binaryPreviewUrl" :src="binaryPreviewUrl" :alt="selectedPath" />
@@ -446,6 +477,7 @@ onBeforeUnmount(() => { unsubscribeWorkspaceWatch?.(); disposeMonacoModels(); if
         :path="selectedPath"
         :original="editorText"
         :modified="activeExternalChange.content"
+        @hunks="activeDiffHunks = $event"
       />
       <MonacoCodeEditor
         v-else-if="selectedPath"
