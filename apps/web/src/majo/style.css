@@ -339,6 +339,20 @@ a {
   overflow-wrap: anywhere;
   font-size: 14px;
 }
+.markdown-message { overflow-wrap: anywhere; }
+.markdown-message > :first-child { margin-top: 0; }
+.markdown-message > :last-child { margin-bottom: 0; }
+.markdown-message p, .markdown-message ul, .markdown-message ol, .markdown-message blockquote { margin: 0 0 10px; }
+.markdown-message h1, .markdown-message h2, .markdown-message h3, .markdown-message h4 { margin: 14px 0 8px; line-height: 1.25; }
+.markdown-message h1 { font-size: 1.45em; }.markdown-message h2 { font-size: 1.28em; }.markdown-message h3 { font-size: 1.12em; }
+.markdown-message code { border-radius: 4px; padding: 1px 4px; background: #292929; font: .9em ui-monospace, SFMono-Regular, Menlo, monospace; }
+.markdown-message pre { overflow: auto; margin: 10px 0; border: 1px solid #3c3c3c; border-radius: 7px; padding: 11px; background: #181818; }
+.markdown-message pre code { padding: 0; background: transparent; }
+.markdown-message blockquote { border-left: 3px solid #666; padding-left: 10px; color: #bdbdbd; }
+.markdown-message table { display: block; max-width: 100%; overflow: auto; border-collapse: collapse; font-size: .92em; }
+.markdown-message th, .markdown-message td { border: 1px solid #484848; padding: 5px 8px; text-align: left; }
+.markdown-message th { background: #2a2a2a; }
+.markdown-message a { color: #8bc3ff; }
 .message.user .message-body {
   background: #2b2b2b;
   border-radius: 12px;

@@ -16,7 +16,9 @@
     "format": "prettier --write --experimental-cli src/"
   },
   "dependencies": {
+    "dompurify": "^3.2.6",
     "eventsource-parser": "^4.1.1",
+    "marked": "^14.0.0",
     "monaco-editor": "^0.55.1",
     "pinia": "^4.0.3",
     "vue": "^3.5.42",

@@ -20,6 +20,7 @@ import {
   type LoopMode,
 } from './api'
 import { codingComposer, workbench } from './state'
+import MarkdownMessage from './MarkdownMessage.vue'
 import {
   MAX_QUEUE_SIZE,
   createQueueItem,
@@ -586,7 +587,7 @@ onBeforeUnmount(() => {
         <div class="message-label">
           {{ message.role === 'user' ? 'You' : message.type === 'reasoning' ? 'Thinking' : 'Majo' }}
         </div>
-        <div class="message-body">{{ messageText(message.content) }}</div>
+        <MarkdownMessage class="message-body" :content="messageText(message.content)" />
         <div v-if="messageAttachments(message.content).length" class="message-attachments">
           <a v-for="attachment in messageAttachments(message.content)" :key="attachment.url" :href="attachmentPreviewUrl(attachment)" target="_blank" rel="noopener">
             <img v-if="isImageAttachment(attachment)" :src="attachmentPreviewUrl(attachment)" :alt="attachment.name" />
@@ -596,11 +597,11 @@ onBeforeUnmount(() => {
       </article>
       <article v-if="liveReasoning" class="message reasoning">
         <div class="message-label">Thinking</div>
-        <div class="message-body">{{ liveReasoning }}</div>
+        <MarkdownMessage class="message-body" :content="liveReasoning" />
       </article>
       <article v-if="liveText" class="message assistant">
         <div class="message-label">Majo</div>
-        <div class="message-body">{{ liveText }}</div>
+        <MarkdownMessage class="message-body" :content="liveText" />
       </article>
       <div v-if="sending && !liveText" class="turn-indicator">{{ activeLoop ? `${activeLoop} loop is working…` : 'Agent is working…' }}</div>
     </div>
