@@ -105,6 +105,14 @@ async function toggleArchived(id: string, archived: boolean) {
   } catch (cause) { workbench.error = cause instanceof Error ? cause.message : 'Could not update the chat.' }
 }
 
+async function renameChat(id: string, currentName: string) {
+  const name = window.prompt('Conversation name', currentName)
+  if (name === null || name.trim() === currentName) return
+  if (!name.trim()) { workbench.error = 'Conversation name cannot be empty.'; return }
+  try { await updateChat(id, workbench.agentId, { name: name.trim() }); await refresh() }
+  catch (cause) { workbench.error = cause instanceof Error ? cause.message : 'Could not rename the chat.' }
+}
+
 function changeAgent(event: Event) {
   selectAgent((event.target as HTMLSelectElement).value)
   void router.push('/chat')
@@ -183,6 +191,7 @@ onBeforeUnmount(() => {
               {{ chat.name || 'New chat' }}
             </RouterLink>
             <button class="session-delete" :aria-label="`${chat.pinned ? 'Unpin' : 'Pin'} ${chat.name}`" :title="chat.pinned ? 'Unpin' : 'Pin'" @click="togglePinned(chat.id, Boolean(chat.pinned))">{{ chat.pinned ? '★' : '☆' }}</button>
+            <button class="session-delete" :aria-label="`Rename ${chat.name}`" title="Rename chat" @click="renameChat(chat.id, chat.name)">✎</button>
             <button class="session-delete" :aria-label="`${showArchived ? 'Restore' : 'Archive'} ${chat.name}`" :title="showArchived ? 'Restore' : 'Archive'" @click="toggleArchived(chat.id, showArchived)">{{ showArchived ? '↩' : '▱' }}</button>
             <button
               class="session-delete"
