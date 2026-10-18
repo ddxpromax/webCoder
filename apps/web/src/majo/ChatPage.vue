@@ -292,6 +292,15 @@ function removeQueuedTurn(id: string) {
   persistQueue()
 }
 
+function retryQueuedTurn(id: string) {
+  const item = queuedTurns.value.find((entry) => entry.id === id)
+  if (!item) return
+  item.status = 'pending'
+  item.error = undefined
+  persistQueue()
+  void drainQueue()
+}
+
 function onComposerKeydown(event: KeyboardEvent) {
   if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return
   event.preventDefault()
@@ -312,6 +321,7 @@ async function drainQueue() {
       while (!sending.value && queuedTurns.value.length) {
         const next = queuedTurns.value[0]
         if (!next) break
+        if (next.status === 'failed') break
         next.status = 'sending'
         next.error = undefined
         persistQueue()
@@ -634,6 +644,7 @@ onBeforeUnmount(() => {
         <div v-for="item in queuedTurns" :key="item.id" class="queued-turn" :class="item.status">
           <span>{{ item.text }}</span><small v-if="item.attachments.length">{{ item.attachments.length }} attachment{{ item.attachments.length === 1 ? '' : 's' }}</small>
           <em>{{ item.status === 'sending' ? 'Sending…' : item.status === 'failed' ? 'Failed' : 'Pending' }}</em>
+          <button v-if="item.status === 'failed'" type="button" @click="retryQueuedTurn(item.id)">Retry</button>
           <button type="button" :disabled="item.status === 'sending'" @click="removeQueuedTurn(item.id)">Remove</button>
         </div>
       </section>
