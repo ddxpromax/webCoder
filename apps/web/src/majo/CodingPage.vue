@@ -13,6 +13,7 @@ import {
   type CodingProject,
 } from './api'
 import { workbench } from './state'
+import { subscribeWorkspaceWatch, type WorkspaceFileChange } from './workspaceWatch'
 
 const project = ref<CodingProject | null>(null)
 const files = ref<CodeFile[]>([])
@@ -21,8 +22,10 @@ interface FileTreeNode { name: string; path: string; directory: boolean; file?: 
 interface FileTreeRow { name: string; path: string; directory: boolean; file?: CodeFile; depth: number }
 const tabs = ref<EditorTab[]>([])
 const activeTabPath = ref('')
+const externalChanges = ref<Record<string, { content: string | null; change: WorkspaceFileChange['change'] }>>({})
 const activeTab = computed(() => tabs.value.find((tab) => tab.path === activeTabPath.value))
 const selectedPath = computed(() => activeTab.value?.path || '')
+const activeExternalChange = computed(() => selectedPath.value ? externalChanges.value[selectedPath.value] : undefined)
 const editorText = computed({
   get: () => activeTab.value?.content || '',
   set: (content: string) => { if (activeTab.value) activeTab.value.content = content },
@@ -42,6 +45,8 @@ const binaryPreviewUrl = ref('')
 const binaryPreviewLoading = ref(false)
 let binaryPreviewObjectUrl = ''
 let refreshVersion = 0
+let unsubscribeWorkspaceWatch: (() => void) | undefined
+let watchKey = ''
 
 const previewKind = computed<'image' | 'pdf' | 'markdown' | 'csv' | 'json' | 'none'>(() => {
   const extension = selectedPath.value.split('.').pop()?.toLowerCase()
@@ -141,11 +146,47 @@ async function refresh() {
     availableProjects.value = projects
     codingModeEnabled.value = mode.enabled
     if (!tabs.value.length) await restoreTabs(agentId, version)
+    startWorkspaceWatch(agentId, current.path)
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : 'Could not load project.'
   } finally {
     loading.value = false
   }
+}
+
+async function reloadFileList(agentId: string) {
+  try {
+    files.value = (await listCodeFiles(agentId)).sort((left, right) => left.path.localeCompare(right.path))
+  } catch { /* The next explicit refresh reports a persistent filesystem error. */ }
+}
+
+async function recordExternalChange(change: WorkspaceFileChange) {
+  const tab = tabs.value.find((candidate) => candidate.path === change.path)
+  if (!tab || tab.content !== tab.original) return
+  if (change.change === 'deleted') {
+    externalChanges.value = { ...externalChanges.value, [change.path]: { content: null, change: 'deleted' } }
+    return
+  }
+  try {
+    const updated = await readCodeFile(change.path, workbench.agentId)
+    if (updated.content !== tab.content) {
+      externalChanges.value = { ...externalChanges.value, [change.path]: { content: updated.content, change: change.change } }
+    }
+  } catch { /* A concurrent rename/delete will be reported by the following watcher event. */ }
+}
+
+function handleWorkspaceChanges(changes: WorkspaceFileChange[]) {
+  const agentId = workbench.agentId
+  if (changes.some((change) => change.change === 'added' || change.change === 'deleted')) void reloadFileList(agentId)
+  for (const change of changes) void recordExternalChange(change)
+}
+
+function startWorkspaceWatch(agentId: string, projectPath: string) {
+  const key = `${agentId}:${projectPath}`
+  if (watchKey === key) return
+  unsubscribeWorkspaceWatch?.()
+  watchKey = key
+  unsubscribeWorkspaceWatch = subscribeWorkspaceWatch(agentId, handleWorkspaceChanges)
 }
 
 async function toggleCodingMode() {
@@ -216,11 +257,28 @@ async function saveFile() {
   try {
     await writeCodeFile(selectedPath.value, editorText.value, workbench.agentId)
     if (activeTab.value) activeTab.value.original = editorText.value
+    const next = { ...externalChanges.value }; delete next[selectedPath.value]; externalChanges.value = next
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : 'Could not save file.'
   } finally {
     saving.value = false
   }
+}
+
+function acceptExternalChange(path: string) {
+  const change = externalChanges.value[path]
+  const tab = tabs.value.find((candidate) => candidate.path === path)
+  if (tab && change?.content !== null && change?.content !== undefined) {
+    tab.content = change.content
+    tab.original = change.content
+  } else if (change?.content === null) {
+    closeTab(path)
+  }
+  const next = { ...externalChanges.value }; delete next[path]; externalChanges.value = next
+}
+
+function keepLocalChange(path: string) {
+  const next = { ...externalChanges.value }; delete next[path]; externalChanges.value = next
 }
 
 function closeTab(path: string) {
@@ -270,11 +328,11 @@ async function createProject() {
 
 watch(
   () => workbench.agentId,
-  () => { tabs.value = []; activeTabPath.value = ''; void refresh() },
+  () => { tabs.value = []; activeTabPath.value = ''; watchKey = ''; unsubscribeWorkspaceWatch?.(); void refresh() },
 )
 watch([selectedPath, previewMode, () => workbench.agentId], () => void loadBinaryPreview())
 onMounted(() => void refresh())
-onBeforeUnmount(() => { if (binaryPreviewObjectUrl) URL.revokeObjectURL(binaryPreviewObjectUrl) })
+onBeforeUnmount(() => { unsubscribeWorkspaceWatch?.(); if (binaryPreviewObjectUrl) URL.revokeObjectURL(binaryPreviewObjectUrl) })
 </script>
 
 <template>
@@ -348,6 +406,11 @@ onBeforeUnmount(() => { if (binaryPreviewObjectUrl) URL.revokeObjectURL(binaryPr
           {{ saving ? 'Saving…' : 'Save' }}
         </button>
         <button v-if="previewable" @click="previewMode = !previewMode">{{ previewMode ? 'Edit' : 'Preview' }}</button>
+      </div>
+      <div v-if="selectedPath && activeExternalChange" class="external-change" role="status">
+        <span>{{ activeExternalChange.change === 'deleted' ? 'This open file was deleted on disk.' : 'This file changed on disk.' }}</span>
+        <button @click="acceptExternalChange(selectedPath)">{{ activeExternalChange.change === 'deleted' ? 'Close tab' : 'Load change' }}</button>
+        <button @click="keepLocalChange(selectedPath)">Keep current</button>
       </div>
       <div v-if="selectedPath && previewMode" class="file-preview">
         <p v-if="binaryPreviewLoading" class="muted">Loading preview…</p>

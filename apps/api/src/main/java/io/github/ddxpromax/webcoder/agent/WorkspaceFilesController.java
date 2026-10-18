@@ -22,6 +22,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.Resource;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -58,6 +59,7 @@ public class WorkspaceFilesController {
 
     private final AgentStore agents;
     private final WorkspaceMutationGate mutationGate;
+    private final WorkspaceWatchService workspaceWatch;
 
     public WorkspaceFilesController(AgentStore agents) {
         this(agents, LocalWorkspaceMutationGate.shared());
@@ -70,6 +72,9 @@ public class WorkspaceFilesController {
     ) {
         this.agents = agents;
         this.mutationGate = mutationGate;
+        this.workspaceWatch = new WorkspaceWatchService(
+            new com.fasterxml.jackson.databind.ObjectMapper()
+        );
     }
 
     @GetMapping("/workspace/code-files")
@@ -85,6 +90,26 @@ public class WorkspaceFilesController {
         @PathVariable String agentId
     ) {
         return listCodeFiles(agents.workspaceDirForAgent(agentId));
+    }
+
+    @GetMapping("/workspace/watch")
+    public ResponseEntity<SseEmitter> watchWorkspace(
+        HttpServletRequest request,
+        @RequestParam(required = false) String root
+    ) {
+        return workspaceWatch.watch(
+            browseRoot(agentId(request), root),
+            WorkspaceFilesController::skipped
+        );
+    }
+
+    @GetMapping("/agents/{agentId}/workspace/watch")
+    public ResponseEntity<SseEmitter> watchAgentWorkspace(
+        @PathVariable String agentId
+    ) {
+        return workspaceWatch.watch(
+            workspace(agentId), WorkspaceFilesController::skipped
+        );
     }
 
     @GetMapping("/workspace/code-files/**")
