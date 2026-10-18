@@ -297,6 +297,17 @@ function isImageAttachment(attachment: ChatAttachment) {
   return attachment.type === 'image' || attachment.type.startsWith('image/')
 }
 
+function historyToolCalls(message: ChatMessage): LiveToolCall[] {
+  const raw = message.metadata?.toolCalls
+  try {
+    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter((item): item is LiveToolCall => Boolean(item) && typeof item.id === 'string'
+      && typeof item.name === 'string' && typeof item.input === 'string'
+      && (item.status === 'calling' || item.status === 'done' || item.status === 'error'))
+  } catch { return [] }
+}
+
 function persistQueue() {
   writeQueue(queueKey.value, queuedTurns.value)
 }
@@ -630,6 +641,7 @@ onBeforeUnmount(() => {
           {{ message.role === 'user' ? 'You' : message.type === 'reasoning' ? 'Thinking' : 'Majo' }}
         </div>
         <MarkdownMessage class="message-body" :content="messageText(message.content)" />
+        <ToolCallCard v-for="tool in historyToolCalls(message)" :key="tool.id" :tool="tool" />
         <div v-if="messageAttachments(message.content).length" class="message-attachments">
           <a v-for="attachment in messageAttachments(message.content)" :key="attachment.url" :href="attachmentPreviewUrl(attachment)" target="_blank" rel="noopener">
             <img v-if="isImageAttachment(attachment)" :src="attachmentPreviewUrl(attachment)" :alt="attachment.name" />

@@ -223,7 +223,7 @@ public class ConsoleController {
         }).doFinally(signal -> {
             try {
                 approvals.cancelSession(sessionId);
-                saveConsoleMessages(chatId, userContent, state.completedMessages);
+                saveConsoleMessages(chatId, userContent, state.completedMessages, state.completedToolCalls);
                 chats.setStatus(chatId, "idle");
                 tasks.setDone(chatId);
             } catch (Exception exception) {
@@ -301,7 +301,7 @@ public class ConsoleController {
             Flux.defer(() -> Flux.just(events.responseCompleted(responseId, sessionId, aggregate.inputTokens, aggregate.outputTokens, aggregate.messages), events.turnUsage(sessionId, aggregate.inputTokens, aggregate.outputTokens)))
         ).onErrorResume(exception -> Flux.just(events.error(Objects.toString(exception.getMessage(), "Agent loop failed"))))
         .doFinally(signal -> {
-            try { approvals.cancelSession(sessionId); saveConsoleMessages(chatId, userContent, aggregate.messages); chats.setStatus(chatId, "idle"); tasks.setDone(chatId); }
+            try { approvals.cancelSession(sessionId); saveConsoleMessages(chatId, userContent, aggregate.messages, aggregate.toolCalls); chats.setStatus(chatId, "idle"); tasks.setDone(chatId); }
             catch (Exception exception) { log.error("Failed to persist loop chat {}", chatId, exception); }
             finally { loops.end(sessionId); turns.unregister(chatId); try { agentFactory.close(agent); } catch (Exception exception) { log.warn("Failed to close loop agent", exception); } }
             if (aggregate.inputTokens > 0 || aggregate.outputTokens > 0) tokenUsage.record(agentId, chatId, modelSlot == null ? "" : modelSlot.providerId(), modelSlot == null ? "" : modelSlot.modelId(), aggregate.inputTokens, aggregate.outputTokens, System.currentTimeMillis() - startedAt);
@@ -315,7 +315,7 @@ public class ConsoleController {
         return OverflowRecovery.recover(agent.streamEvents(message, context), agent, message, context)
             .concatMap(event -> Flux.fromIterable(encodeAgentEvent(event, turn, events)))
             .concatWith(Flux.defer(() -> {
-                aggregate.messages.addAll(turn.completedMessages); aggregate.inputTokens += turn.inputTokens; aggregate.outputTokens += turn.outputTokens;
+                aggregate.messages.addAll(turn.completedMessages); aggregate.toolCalls.addAll(turn.completedToolCalls); aggregate.inputTokens += turn.inputTokens; aggregate.outputTokens += turn.outputTokens;
                 LoopGate.setCurrentSession(session.sessionId);
                 StopHandlerResult result;
                 try {
@@ -380,7 +380,7 @@ public class ConsoleController {
         return handler;
     }
     private record LoopCommand(String modeId, String displayName, String goal) { }
-    private static final class LoopAggregate { int inputTokens; int outputTokens; final List<Map<String, Object>> messages = new ArrayList<>(); }
+    private static final class LoopAggregate { int inputTokens; int outputTokens; final List<Map<String, Object>> messages = new ArrayList<>(); final List<Map<String, Object>> toolCalls = new ArrayList<>(); }
 
     @PostMapping("/console/chat/stop")
     public Map<String, Object> stopChat(
@@ -485,7 +485,7 @@ public class ConsoleController {
             events.turnUsage(sessionId, 0, 0)
         ).doFinally(signal -> {
             try {
-                saveConsoleMessages(chatId, textContent(prompt), completed);
+                saveConsoleMessages(chatId, textContent(prompt), completed, List.of());
                 chats.setStatus(chatId, "idle");
                 tasks.setDone(chatId);
             } catch (Exception exception) {
@@ -650,6 +650,9 @@ public class ConsoleController {
             String input = call == null ? "" : call.input.toString();
             state.lastToolCall = new LoopContext.ToolCallRecord(name,
                 DoomLoopGate.hashArgs(input));
+            state.completedToolCalls.add(Map.of(
+                "id", id, "name", name, "input", input, "status", "done"
+            ));
         } catch (ReflectiveOperationException ignored) {
             // Ignore unknown event shapes; hasToolCalls stays true.
         }
@@ -674,13 +677,21 @@ public class ConsoleController {
     private void saveConsoleMessages(
         String chatId,
         List<Map<String, Object>> userContent,
-        List<Map<String, Object>> completed
+        List<Map<String, Object>> completed,
+        List<Map<String, Object>> toolCalls
     ) throws Exception {
         List<Map<String, String>> messages = new ArrayList<>();
         Map<String, String> user = new LinkedHashMap<>();
         user.put("role", "user");
         user.put("content", mapper.writeValueAsString(userContent));
         messages.add(user);
+        if (!toolCalls.isEmpty()) {
+            Map<String, String> assistantTools = new LinkedHashMap<>();
+            assistantTools.put("role", "assistant");
+            assistantTools.put("content", "[]");
+            assistantTools.put("toolCalls", mapper.writeValueAsString(toolCalls));
+            messages.add(assistantTools);
+        }
         for (Map<String, Object> event : completed) {
             Map<String, String> assistant = new LinkedHashMap<>();
             assistant.put("role", "assistant");
@@ -870,6 +881,7 @@ public class ConsoleController {
         LoopContext.ToolCallRecord lastToolCall;
         final Map<String, ToolCallAccumulator> toolCalls =
             new LinkedHashMap<>();
+        final List<Map<String, Object>> completedToolCalls = new ArrayList<>();
     }
 
     private static final class ToolCallAccumulator {

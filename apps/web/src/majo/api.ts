@@ -35,6 +35,7 @@ export interface ChatMessage {
   content: unknown
   status?: string
   created_at?: string
+  metadata?: { toolCalls?: string | LiveToolCall[] }
 }
 
 export interface ChatAttachment {
