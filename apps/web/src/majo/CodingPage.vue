@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import ChatPage from './ChatPage.vue'
 import GitPanel from './GitPanel.vue'
 import {
@@ -15,9 +15,16 @@ import { workbench } from './state'
 
 const project = ref<CodingProject | null>(null)
 const files = ref<CodeFile[]>([])
-const selectedPath = ref('')
-const editorText = ref('')
-const originalText = ref('')
+interface EditorTab { path: string; content: string; original: string }
+const tabs = ref<EditorTab[]>([])
+const activeTabPath = ref('')
+const activeTab = computed(() => tabs.value.find((tab) => tab.path === activeTabPath.value))
+const selectedPath = computed(() => activeTab.value?.path || '')
+const editorText = computed({
+  get: () => activeTab.value?.content || '',
+  set: (content: string) => { if (activeTab.value) activeTab.value.content = content },
+})
+const originalText = computed(() => activeTab.value?.original || '')
 const loading = ref(false)
 const saving = ref(false)
 const error = ref('')
@@ -25,25 +32,54 @@ const projectName = ref('')
 const projectPickerOpen = ref(false)
 const codingModeEnabled = ref(false)
 const availableProjects = ref<Array<{ path: string; name: string }>>([])
+const tabStorageKey = computed(() => `majo:coding-tabs:${workbench.agentId}`)
+let refreshVersion = 0
+
+function persistTabs() {
+  try { window.localStorage.setItem(tabStorageKey.value, JSON.stringify(tabs.value.map((tab) => tab.path))) }
+  catch { /* Editor tabs remain available for the current page. */ }
+}
+
+async function restoreTabs(agentId: string, version: number) {
+  let paths: string[] = []
+  try {
+    const raw = JSON.parse(window.localStorage.getItem(`majo:coding-tabs:${agentId}`) || '[]') as unknown
+    paths = Array.isArray(raw) ? raw.filter((path): path is string => typeof path === 'string') : []
+  } catch { /* A malformed saved value is ignored. */ }
+  const restored = await Promise.all(paths.map(async (path) => {
+    try {
+      const result = await readCodeFile(path, agentId)
+      return { path, content: result.content, original: result.content }
+    } catch { return null }
+  }))
+  if (version !== refreshVersion || agentId !== workbench.agentId) return
+  tabs.value = restored.filter((tab): tab is EditorTab => tab !== null)
+  activeTabPath.value = tabs.value[0]?.path || ''
+  persistTabs()
+}
 
 async function refresh() {
+  const version = ++refreshVersion
+  const agentId = workbench.agentId
   loading.value = true
   error.value = ''
   try {
     const [current, entries, projects, mode] = await Promise.all([
-      getCodingProject(workbench.agentId),
-      listCodeFiles(workbench.agentId),
+      getCodingProject(agentId),
+      listCodeFiles(agentId),
       apiRequest<Array<{ path: string; name: string }>>(
         '/workspace/coding-project/list',
         {},
-        workbench.agentId,
+        agentId,
       ),
-      apiRequest<{ enabled: boolean }>('/coding-mode', {}, workbench.agentId),
+      apiRequest<{ enabled: boolean }>('/coding-mode', {}, agentId),
     ])
+    if (version !== refreshVersion || agentId !== workbench.agentId) return
     project.value = current
     files.value = entries.sort((left, right) => left.path.localeCompare(right.path))
     availableProjects.value = projects
     codingModeEnabled.value = mode.enabled
+    if (!tabs.value.length) await restoreTabs(agentId, version)
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : 'Could not load project.'
   } finally {
@@ -66,13 +102,14 @@ async function toggleCodingMode() {
 
 async function openFile(file: CodeFile) {
   if (!file.path || file.is_dir) return
-  if (editorText.value !== originalText.value && !window.confirm('Discard unsaved changes?')) return
+  const existing = tabs.value.find((tab) => tab.path === file.path)
+  if (existing) { activeTabPath.value = existing.path; return }
   error.value = ''
   try {
     const result = await readCodeFile(file.path, workbench.agentId)
-    selectedPath.value = file.path
-    editorText.value = result.content
-    originalText.value = result.content
+    tabs.value.push({ path: file.path, content: result.content, original: result.content })
+    activeTabPath.value = file.path
+    persistTabs()
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : 'Could not open file.'
   }
@@ -84,12 +121,22 @@ async function saveFile() {
   error.value = ''
   try {
     await writeCodeFile(selectedPath.value, editorText.value, workbench.agentId)
-    originalText.value = editorText.value
+    if (activeTab.value) activeTab.value.original = editorText.value
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : 'Could not save file.'
   } finally {
     saving.value = false
   }
+}
+
+function closeTab(path: string) {
+  const index = tabs.value.findIndex((tab) => tab.path === path)
+  if (index < 0) return
+  const tab = tabs.value[index]
+  if (tab && tab.content !== tab.original && !window.confirm(`Close ${path} without saving changes?`)) return
+  tabs.value.splice(index, 1)
+  if (activeTabPath.value === path) activeTabPath.value = tabs.value[index]?.path || tabs.value[index - 1]?.path || ''
+  persistTabs()
 }
 
 async function selectProject(path: string | null) {
@@ -100,9 +147,9 @@ async function selectProject(path: string | null) {
       { method: 'PUT', body: JSON.stringify({ path }) },
       workbench.agentId,
     )
-    selectedPath.value = ''
-    editorText.value = ''
-    originalText.value = ''
+    tabs.value = []
+    activeTabPath.value = ''
+    persistTabs()
     projectPickerOpen.value = false
     await refresh()
   } catch (cause) {
@@ -129,7 +176,7 @@ async function createProject() {
 
 watch(
   () => workbench.agentId,
-  () => void refresh(),
+  () => { tabs.value = []; activeTabPath.value = ''; void refresh() },
 )
 onMounted(() => void refresh())
 </script>
@@ -182,9 +229,20 @@ onMounted(() => void refresh())
 
     <section class="coding-editor">
       <div class="editor-tabbar">
-        <span
-          >{{ selectedPath || 'No file open' }}{{ editorText !== originalText ? ' ●' : '' }}</span
-        >
+        <div class="editor-tabs">
+          <button
+            v-for="tab in tabs"
+            :key="tab.path"
+            class="editor-tab"
+            :class="{ active: activeTabPath === tab.path }"
+            :title="tab.path"
+            @click="activeTabPath = tab.path"
+          >
+            {{ tab.path.split('/').pop() }}{{ tab.content !== tab.original ? ' ●' : '' }}
+            <span title="Close tab" @click.stop="closeTab(tab.path)">×</span>
+          </button>
+          <span v-if="!tabs.length">No file open</span>
+        </div>
         <button
           v-if="selectedPath"
           :disabled="saving || editorText === originalText"
