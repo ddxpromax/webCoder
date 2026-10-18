@@ -25,6 +25,7 @@ import ChannelsPage from '@/majo/ChannelsPage.vue'
 import PluginHostPage from '@/majo/PluginHostPage.vue'
 import VoiceTranscriptionPage from '@/majo/VoiceTranscriptionPage.vue'
 import DebugPage from '@/majo/DebugPage.vue'
+import HeartbeatPage from '@/majo/HeartbeatPage.vue'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -66,6 +67,7 @@ const router = createRouter({
         { path: 'inbox', component: InboxPage },
         { path: 'backups', component: BackupsPage },
         { path: 'checkpoints', component: CheckpointsPage },
+        { path: 'heartbeat', component: HeartbeatPage },
       ],
     },
   ],
