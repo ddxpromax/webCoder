@@ -299,6 +299,7 @@ a {
   padding: 28px max(24px, calc((100% - 800px) / 2));
   scroll-behavior: smooth;
 }
+.chat-page.wide-mode .chat-transcript { padding-left: 30px; padding-right: 30px; }
 .welcome {
   text-align: center;
   margin: 18vh auto 0;

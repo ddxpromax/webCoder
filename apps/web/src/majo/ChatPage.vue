@@ -56,6 +56,7 @@ const queuedTurns = ref<QueueItem[]>([])
 const drainingQueue = ref(false)
 const lastTurnSucceeded = ref(false)
 const queueKey = computed(() => queueStorageKey(workbench.agentId, chatId.value || 'new'))
+const wideMode = ref(typeof window !== 'undefined' && window.localStorage?.getItem('majo_wide_mode') === 'true')
 interface ChatModel {
   id: string
   name?: string
@@ -338,6 +339,16 @@ function syncQueueFromStorage(event: StorageEvent) {
   if (event.key === queueKey.value) loadQueue()
 }
 
+function toggleWideMode() {
+  wideMode.value = !wideMode.value
+  try {
+    if (wideMode.value) window.localStorage.setItem('majo_wide_mode', 'true')
+    else window.localStorage.removeItem('majo_wide_mode')
+  } catch {
+    // The view remains usable when browser storage is unavailable.
+  }
+}
+
 async function submit() {
   const text = prompt.value.trim()
   if ((!text && !attachments.value.length) || uploading.value) return
@@ -500,7 +511,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <section class="chat-page">
+  <section class="chat-page" :class="{ 'wide-mode': wideMode }">
     <header class="page-heading">
       <div>
         <p class="eyebrow">WORKSPACE</p>
@@ -511,6 +522,7 @@ onBeforeUnmount(() => {
         </h1>
       </div>
       <div class="chat-heading-actions">
+        <button class="icon-button" :title="wideMode ? 'Use normal width' : 'Use wide width'" @click="toggleWideMode">{{ wideMode ? '↔' : '↗' }}</button>
         <div class="model-selector">
           <button
             class="model-selector-trigger"
